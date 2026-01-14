@@ -13,7 +13,7 @@ const FIELD_PADDING = 25; // Padding inside the field
 
 // Animation constants
 const MOVEMENT_DELAY_MS = 1000; // 1 second delay before red player starts moving
-const LERP_FACTOR = 0.05; // How fast the red player moves toward target (0-1, lower = slower)
+const LERP_FACTOR = 0.12; // How fast the red player moves toward target (0-1, lower = slower)
 const POSITION_THRESHOLD = 0.1; // Stop animating when within this distance of target
 
 // Zone boundaries as percentages of field HEIGHT
