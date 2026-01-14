@@ -200,6 +200,7 @@ function App() {
             color="#3b82f6"
             direction={blueDirection}
             isDraggable={true}
+            hasBall={true}
             label="Ball Carrier"
             onMouseDown={handleDragStart}
             onTouchStart={handleDragStart}

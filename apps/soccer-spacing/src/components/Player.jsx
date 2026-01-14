@@ -8,6 +8,7 @@ const Player = ({
   direction = 0,
   isDraggable = false,
   isReactive = false,
+  hasBall = false,
   label,
   onMouseDown,
   onTouchStart,
@@ -56,6 +57,18 @@ const Player = ({
           fill="white"
         />
       </svg>
+
+      {/* Soccer ball at feet */}
+      {hasBall && (
+        <div className="soccer-ball">
+          <svg width="16" height="16" viewBox="0 0 16 16">
+            <circle cx="8" cy="8" r="7" fill="white" stroke="#333" strokeWidth="1"/>
+            <path d="M8 1 L6 4 L2 5 L3 9 L1 12 L5 14 L8 15 L11 14 L15 12 L13 9 L14 5 L10 4 Z"
+                  fill="none" stroke="#333" strokeWidth="0.5"/>
+            <circle cx="8" cy="8" r="2.5" fill="none" stroke="#333" strokeWidth="0.5"/>
+          </svg>
+        </div>
+      )}
 
       {/* Player label */}
       {label && (
