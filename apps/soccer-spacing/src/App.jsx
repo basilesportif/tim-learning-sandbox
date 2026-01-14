@@ -9,20 +9,29 @@ import './App.css';
 // Constants for field dimensions (based on SVG viewBox)
 const FIELD_WIDTH = 1050;
 const FIELD_HEIGHT = 680;
-const FIELD_PADDING = 25; // Padding inside the field
 
 // Animation constants
 const MOVEMENT_DELAY_MS = 1000; // 1 second delay before red player starts moving
 const LERP_FACTOR = 0.12; // How fast the red player moves toward target (0-1, lower = slower)
 const POSITION_THRESHOLD = 0.1; // Stop animating when within this distance of target
 
+// Field boundaries as percentages (playable area with buffer for player size)
+// SVG grass area: x=25-1025, y=25-655
+// Adding buffer so player circles don't overlap the lines
+const FIELD_BOUNDS = {
+  minX: 5,   // ~5% from left edge
+  maxX: 95,  // ~95% from left edge
+  minY: 6,   // ~6% from top edge
+  maxY: 94,  // ~94% from top edge
+};
+
 // Zone boundaries as percentages of field HEIGHT
 // Based on playable area: y=25 to y=655 (630px height)
 // Left wing = TOP, Right wing = BOTTOM
 const ZONE_BOUNDS = {
-  left: { minY: (25 / FIELD_HEIGHT) * 100 + 3, maxY: (214 / FIELD_HEIGHT) * 100 - 3 },    // Top 30%
-  middle: { minY: (214 / FIELD_HEIGHT) * 100 + 3, maxY: (466 / FIELD_HEIGHT) * 100 - 3 }, // Middle 40%
-  right: { minY: (466 / FIELD_HEIGHT) * 100 + 3, maxY: (655 / FIELD_HEIGHT) * 100 - 3 },  // Bottom 30%
+  left: { minY: 6, maxY: 28 },      // Top ~30%
+  middle: { minY: 34, maxY: 66 },   // Middle ~40%
+  right: { minY: 72, maxY: 94 },    // Bottom ~30%
 };
 
 function App() {
@@ -73,14 +82,9 @@ function App() {
 
   // Keep position within field bounds
   const clampPosition = useCallback((pos) => {
-    const minX = (FIELD_PADDING / FIELD_WIDTH) * 100 + 3;
-    const maxX = ((FIELD_WIDTH - FIELD_PADDING) / FIELD_WIDTH) * 100 - 3;
-    const minY = (FIELD_PADDING / FIELD_HEIGHT) * 100 + 3;
-    const maxY = ((FIELD_HEIGHT - FIELD_PADDING) / FIELD_HEIGHT) * 100 - 3;
-
     return {
-      x: Math.max(minX, Math.min(maxX, pos.x)),
-      y: Math.max(minY, Math.min(maxY, pos.y)),
+      x: Math.max(FIELD_BOUNDS.minX, Math.min(FIELD_BOUNDS.maxX, pos.x)),
+      y: Math.max(FIELD_BOUNDS.minY, Math.min(FIELD_BOUNDS.maxY, pos.y)),
     };
   }, []);
 
@@ -88,11 +92,8 @@ function App() {
   // Zone constrains Y (top/bottom), X is free within field bounds
   const clampToZone = useCallback((pos, zone) => {
     const zoneBounds = ZONE_BOUNDS[zone];
-    const minX = (FIELD_PADDING / FIELD_WIDTH) * 100 + 3;
-    const maxX = ((FIELD_WIDTH - FIELD_PADDING) / FIELD_WIDTH) * 100 - 3;
-
     return {
-      x: Math.max(minX, Math.min(maxX, pos.x)),
+      x: Math.max(FIELD_BOUNDS.minX, Math.min(FIELD_BOUNDS.maxX, pos.x)),
       y: Math.max(zoneBounds.minY, Math.min(zoneBounds.maxY, pos.y)),
     };
   }, []);
@@ -166,10 +167,6 @@ function App() {
     const zone = selectedZoneRef.current;
     const zoneBounds = ZONE_BOUNDS[zone];
 
-    // Field bounds
-    const minX = (FIELD_PADDING / FIELD_WIDTH) * 100 + 3;
-    const maxX = ((FIELD_WIDTH - FIELD_PADDING) / FIELD_WIDTH) * 100 - 3;
-
     setRedPlayer((currentPos) => {
       const dx = target.x - currentPos.x;
       const dy = target.y - currentPos.y;
@@ -180,7 +177,7 @@ function App() {
         isAnimatingRef.current = false;
         // Clamp final position to be safe
         return {
-          x: Math.max(minX, Math.min(maxX, target.x)),
+          x: Math.max(FIELD_BOUNDS.minX, Math.min(FIELD_BOUNDS.maxX, target.x)),
           y: Math.max(zoneBounds.minY, Math.min(zoneBounds.maxY, target.y)),
         };
       }
@@ -193,7 +190,7 @@ function App() {
 
       // Always clamp to field bounds and zone - safety net
       return {
-        x: Math.max(minX, Math.min(maxX, newPos.x)),
+        x: Math.max(FIELD_BOUNDS.minX, Math.min(FIELD_BOUNDS.maxX, newPos.x)),
         y: Math.max(zoneBounds.minY, Math.min(zoneBounds.maxY, newPos.y)),
       };
     });
@@ -338,13 +335,20 @@ function App() {
     }
   }, [isDragging, handleDragMove, handleDragEnd]);
 
+  // Final safety clamp for both players before rendering
+  const safeBluePlayer = clampPosition(bluePlayer);
+  const safeRedPlayer = {
+    x: Math.max(FIELD_BOUNDS.minX, Math.min(FIELD_BOUNDS.maxX, redPlayer.x)),
+    y: Math.max(ZONE_BOUNDS[selectedZone].minY, Math.min(ZONE_BOUNDS[selectedZone].maxY, redPlayer.y)),
+  };
+
   // Calculate current distance for display
-  const currentDistancePercent = calculateDistance(bluePlayer, redPlayer);
+  const currentDistancePercent = calculateDistance(safeBluePlayer, safeRedPlayer);
   const currentDistancePixels = percentToPixels(currentDistancePercent);
 
   // Calculate directions for indicators
-  const blueDirection = calculateDirection(bluePlayer, redPlayer);
-  const redDirection = calculateDirection(redPlayer, bluePlayer);
+  const blueDirection = calculateDirection(safeBluePlayer, safeRedPlayer);
+  const redDirection = calculateDirection(safeRedPlayer, safeBluePlayer);
 
   return (
     <div className="app">
@@ -361,17 +365,17 @@ function App() {
       <div className="field-wrapper" ref={fieldRef}>
         <SoccerField selectedZone={selectedZone}>
           <DistanceIndicator
-            x1={bluePlayer.x}
-            y1={bluePlayer.y}
-            x2={redPlayer.x}
-            y2={redPlayer.y}
+            x1={safeBluePlayer.x}
+            y1={safeBluePlayer.y}
+            x2={safeRedPlayer.x}
+            y2={safeRedPlayer.y}
             targetDistance={targetDistance}
             currentDistance={currentDistancePixels}
           />
 
           <Player
-            x={bluePlayer.x}
-            y={bluePlayer.y}
+            x={safeBluePlayer.x}
+            y={safeBluePlayer.y}
             color="#3b82f6"
             direction={blueDirection}
             isDraggable={true}
@@ -382,8 +386,8 @@ function App() {
           />
 
           <Player
-            x={redPlayer.x}
-            y={redPlayer.y}
+            x={safeRedPlayer.x}
+            y={safeRedPlayer.y}
             color="#3b82f6"
             direction={redDirection}
             isReactive={true}
