@@ -1,0 +1,7 @@
+node_modules/
+.DS_Store
+secrets/
+
+# Don't ignore data files - they're the DB
+# But do ignore any local dev data
+apps/*/data/*.local.json
