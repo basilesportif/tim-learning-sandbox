@@ -366,10 +366,26 @@ function App() {
           <Player
             x={redPlayer.x}
             y={redPlayer.y}
-            color="#ef4444"
+            color="#3b82f6"
             direction={redDirection}
             isReactive={true}
             label="Open Player"
+          />
+
+          {/* Goalies */}
+          <Player
+            x={3}
+            y={50}
+            color="#3b82f6"
+            direction={0}
+            label="Goalie"
+          />
+          <Player
+            x={97}
+            y={50}
+            color="#eab308"
+            direction={Math.PI}
+            label="Goalie"
           />
         </SoccerField>
       </div>
