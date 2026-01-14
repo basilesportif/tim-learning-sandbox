@@ -200,7 +200,7 @@ function App() {
             color="#3b82f6"
             direction={blueDirection}
             isDraggable={true}
-            label="You (Defender)"
+            label="Ball Carrier"
             onMouseDown={handleDragStart}
             onTouchStart={handleDragStart}
           />
@@ -211,7 +211,7 @@ function App() {
             color="#ef4444"
             direction={redDirection}
             isReactive={true}
-            label="Opponent"
+            label="Open Player"
           />
         </SoccerField>
       </div>
