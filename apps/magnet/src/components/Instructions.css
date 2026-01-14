@@ -1,0 +1,149 @@
+.instructions {
+  text-align: center;
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
+  border-radius: 12px;
+  margin-bottom: 15px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.title {
+  font-size: 1.8rem;
+  margin: 0 0 8px 0;
+  color: #fff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.description {
+  font-size: 1rem;
+  margin: 0 0 10px 0;
+  color: #e0e7ff;
+}
+
+.blue-text {
+  color: #60a5fa;
+  font-weight: bold;
+}
+
+.red-text {
+  color: #f87171;
+  font-weight: bold;
+}
+
+.tip-container {
+  display: flex;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.tip {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  color: #bfdbfe;
+}
+
+.distance-control {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.distance-control label {
+  font-size: 0.9rem;
+  color: #e0e7ff;
+}
+
+.slider {
+  width: 200px;
+  height: 8px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #60a5fa;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s;
+}
+
+.slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+.slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #60a5fa;
+  cursor: pointer;
+  border: none;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .instructions {
+    padding: 8px 15px;
+    margin-bottom: 10px;
+  }
+
+  .title {
+    font-size: 1.4rem;
+  }
+
+  .description {
+    font-size: 0.9rem;
+  }
+
+  .tip-container {
+    gap: 10px;
+  }
+
+  .tip {
+    font-size: 0.8rem;
+    padding: 6px 12px;
+  }
+
+  .slider {
+    width: 160px;
+  }
+}
+
+@media (max-width: 480px) {
+  .instructions {
+    padding: 8px 10px;
+    border-radius: 8px;
+  }
+
+  .title {
+    font-size: 1.2rem;
+  }
+
+  .description {
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+  }
+
+  .tip-container {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .tip {
+    font-size: 0.75rem;
+  }
+}

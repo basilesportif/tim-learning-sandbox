@@ -1,0 +1,65 @@
+.player {
+  position: absolute;
+  border-radius: 50%;
+  cursor: default;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4), inset 0 -3px 6px rgba(0, 0, 0, 0.2);
+  border: 3px solid rgba(255, 255, 255, 0.8);
+  z-index: 10;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+}
+
+.player.draggable {
+  cursor: grab;
+  z-index: 20;
+}
+
+.player.draggable:active {
+  cursor: grabbing;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5), inset 0 -3px 6px rgba(0, 0, 0, 0.2);
+  transform: translate(-50%, -50%) scale(1.1);
+}
+
+.player.reactive {
+  transition: left 0.15s ease-out, top 0.15s ease-out;
+}
+
+.direction-indicator {
+  position: absolute;
+  pointer-events: none;
+}
+
+.player-label {
+  position: absolute;
+  bottom: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 12px;
+  font-weight: bold;
+  color: white;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Pulse animation for draggable player hint */
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4), inset 0 -3px 6px rgba(0, 0, 0, 0.2);
+  }
+  50% {
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4), inset 0 -3px 6px rgba(0, 0, 0, 0.2), 0 0 0 8px rgba(255, 255, 255, 0.3);
+  }
+}
+
+.player.draggable {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.player.draggable:active {
+  animation: none;
+}
