@@ -2,6 +2,10 @@
 
 Educational web apps for kids built with Vite + React.
 
+## Sub Agents
+- use sub-agents whenever possible, instead of doing work in the main context
+- if a command has parallel aspects, split those into parallel calls to sub-agents
+
 ## Development Workflow
 
 After making any changes to an app:
