@@ -1,12 +1,13 @@
 import React from 'react';
 import './SoccerField.css';
 
-// Zone boundaries (as percentages of the playable field width)
-// Field playable area: x=25 to x=1025 (width 1000)
+// Zone boundaries (as percentages of the playable field HEIGHT)
+// Field playable area: y=25 to y=655 (height 630)
+// Left wing = TOP of field, Right wing = BOTTOM of field
 const ZONE_CONFIG = {
-  left: { start: 25, end: 325 },   // 30% (0-30%)
-  middle: { start: 325, end: 725 }, // 40% (30-70%)
-  right: { start: 725, end: 1025 }, // 30% (70-100%)
+  left: { start: 25, end: 214 },    // Top 30% (0-30%)
+  middle: { start: 214, end: 466 }, // Middle 40% (30-70%)
+  right: { start: 466, end: 655 },  // Bottom 30% (70-100%)
 };
 
 const SoccerField = ({ children, selectedZone }) => {
@@ -39,51 +40,51 @@ const SoccerField = ({ children, selectedZone }) => {
           />
         ))}
 
-        {/* Zone corridor overlays */}
+        {/* Zone corridor overlays - HORIZONTAL bands */}
         <g className="zone-corridors">
-          {/* Left Wing Zone */}
+          {/* Left Wing Zone (TOP of field) */}
           <rect
-            x={ZONE_CONFIG.left.start}
-            y="25"
-            width={ZONE_CONFIG.left.end - ZONE_CONFIG.left.start}
-            height="630"
+            x="25"
+            y={ZONE_CONFIG.left.start}
+            width="1000"
+            height={ZONE_CONFIG.left.end - ZONE_CONFIG.left.start}
             fill="rgba(147, 197, 253, 0.15)"
             className={`zone-corridor zone-left ${selectedZone === 'left' ? 'active' : ''}`}
           />
           {/* Middle Zone */}
           <rect
-            x={ZONE_CONFIG.middle.start}
-            y="25"
-            width={ZONE_CONFIG.middle.end - ZONE_CONFIG.middle.start}
-            height="630"
+            x="25"
+            y={ZONE_CONFIG.middle.start}
+            width="1000"
+            height={ZONE_CONFIG.middle.end - ZONE_CONFIG.middle.start}
             fill="rgba(253, 224, 71, 0.1)"
             className={`zone-corridor zone-middle ${selectedZone === 'middle' ? 'active' : ''}`}
           />
-          {/* Right Wing Zone */}
+          {/* Right Wing Zone (BOTTOM of field) */}
           <rect
-            x={ZONE_CONFIG.right.start}
-            y="25"
-            width={ZONE_CONFIG.right.end - ZONE_CONFIG.right.start}
-            height="630"
+            x="25"
+            y={ZONE_CONFIG.right.start}
+            width="1000"
+            height={ZONE_CONFIG.right.end - ZONE_CONFIG.right.start}
             fill="rgba(252, 165, 165, 0.15)"
             className={`zone-corridor zone-right ${selectedZone === 'right' ? 'active' : ''}`}
           />
 
-          {/* Zone divider lines */}
+          {/* Zone divider lines - HORIZONTAL */}
           <line
-            x1={ZONE_CONFIG.left.end}
-            y1="25"
-            x2={ZONE_CONFIG.left.end}
-            y2="655"
+            x1="25"
+            y1={ZONE_CONFIG.left.end}
+            x2="1025"
+            y2={ZONE_CONFIG.left.end}
             stroke="rgba(255, 255, 255, 0.3)"
             strokeWidth="2"
             strokeDasharray="10,5"
           />
           <line
-            x1={ZONE_CONFIG.middle.end}
-            y1="25"
-            x2={ZONE_CONFIG.middle.end}
-            y2="655"
+            x1="25"
+            y1={ZONE_CONFIG.middle.end}
+            x2="1025"
+            y2={ZONE_CONFIG.middle.end}
             stroke="rgba(255, 255, 255, 0.3)"
             strokeWidth="2"
             strokeDasharray="10,5"

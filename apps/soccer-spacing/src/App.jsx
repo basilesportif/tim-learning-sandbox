@@ -16,12 +16,13 @@ const MOVEMENT_DELAY_MS = 1000; // 1 second delay before red player starts movin
 const LERP_FACTOR = 0.05; // How fast the red player moves toward target (0-1, lower = slower)
 const POSITION_THRESHOLD = 0.1; // Stop animating when within this distance of target
 
-// Zone boundaries as percentages of field width
-// Based on playable area: x=25 to x=1025 (1000px width)
+// Zone boundaries as percentages of field HEIGHT
+// Based on playable area: y=25 to y=655 (630px height)
+// Left wing = TOP, Right wing = BOTTOM
 const ZONE_BOUNDS = {
-  left: { minX: (25 / FIELD_WIDTH) * 100 + 3, maxX: (325 / FIELD_WIDTH) * 100 - 3 },
-  middle: { minX: (325 / FIELD_WIDTH) * 100 + 3, maxX: (725 / FIELD_WIDTH) * 100 - 3 },
-  right: { minX: (725 / FIELD_WIDTH) * 100 + 3, maxX: (1025 / FIELD_WIDTH) * 100 - 3 },
+  left: { minY: (25 / FIELD_HEIGHT) * 100 + 3, maxY: (214 / FIELD_HEIGHT) * 100 - 3 },    // Top 30%
+  middle: { minY: (214 / FIELD_HEIGHT) * 100 + 3, maxY: (466 / FIELD_HEIGHT) * 100 - 3 }, // Middle 40%
+  right: { minY: (466 / FIELD_HEIGHT) * 100 + 3, maxY: (655 / FIELD_HEIGHT) * 100 - 3 },  // Bottom 30%
 };
 
 function App() {
@@ -83,14 +84,15 @@ function App() {
   }, []);
 
   // Keep position within field bounds AND the selected zone (for red player)
+  // Zone constrains Y (top/bottom), X is free within field bounds
   const clampToZone = useCallback((pos, zone) => {
     const zoneBounds = ZONE_BOUNDS[zone];
-    const minY = (FIELD_PADDING / FIELD_HEIGHT) * 100 + 3;
-    const maxY = ((FIELD_HEIGHT - FIELD_PADDING) / FIELD_HEIGHT) * 100 - 3;
+    const minX = (FIELD_PADDING / FIELD_WIDTH) * 100 + 3;
+    const maxX = ((FIELD_WIDTH - FIELD_PADDING) / FIELD_WIDTH) * 100 - 3;
 
     return {
-      x: Math.max(zoneBounds.minX, Math.min(zoneBounds.maxX, pos.x)),
-      y: Math.max(minY, Math.min(maxY, pos.y)),
+      x: Math.max(minX, Math.min(maxX, pos.x)),
+      y: Math.max(zoneBounds.minY, Math.min(zoneBounds.maxY, pos.y)),
     };
   }, []);
 
@@ -132,22 +134,22 @@ function App() {
       const clampedDy = newRedPos.y - newBluePos.y;
       const clampedDistance = Math.sqrt(clampedDx * clampedDx + clampedDy * clampedDy);
 
-      // If we're too close after clamping, try to move vertically to maintain distance
+      // If we're too close after clamping, try to move horizontally to maintain distance
       if (clampedDistance < targetDistPercent * 0.7) {
-        // Determine which edge we're constrained to
-        const atLeftEdge = newRedPos.x <= zoneBounds.minX + 1;
-        const atRightEdge = newRedPos.x >= zoneBounds.maxX - 1;
+        // Determine which edge we're constrained to (top or bottom of zone)
+        const atTopEdge = newRedPos.y <= zoneBounds.minY + 1;
+        const atBottomEdge = newRedPos.y >= zoneBounds.maxY - 1;
 
-        if (atLeftEdge || atRightEdge) {
-          // Calculate how much vertical distance we need
-          const horizontalDist = Math.abs(newRedPos.x - newBluePos.x);
-          const verticalDistNeeded = Math.sqrt(
-            Math.max(0, targetDistPercent * targetDistPercent - horizontalDist * horizontalDist)
+        if (atTopEdge || atBottomEdge) {
+          // Calculate how much horizontal distance we need
+          const verticalDist = Math.abs(newRedPos.y - newBluePos.y);
+          const horizontalDistNeeded = Math.sqrt(
+            Math.max(0, targetDistPercent * targetDistPercent - verticalDist * verticalDist)
           );
 
-          // Move vertically in the direction we were heading
-          const verticalDir = dy >= 0 ? 1 : -1;
-          newRedPos.y = newBluePos.y + verticalDir * verticalDistNeeded;
+          // Move horizontally in the direction we were heading
+          const horizontalDir = dx >= 0 ? 1 : -1;
+          newRedPos.x = newBluePos.x + horizontalDir * horizontalDistNeeded;
         }
       }
 
