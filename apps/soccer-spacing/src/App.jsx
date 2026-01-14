@@ -45,6 +45,7 @@ function App() {
   const movementDelayTimerRef = useRef(null); // Timer for 1 second delay
   const animationFrameRef = useRef(null); // requestAnimationFrame ID
   const isAnimatingRef = useRef(false); // Whether animation is currently running
+  const selectedZoneRef = useRef('middle'); // Track zone for animation clamping
 
   // Calculate direction from red player to blue player (for direction indicator)
   const calculateDirection = useCallback((from, to) => {
@@ -162,6 +163,12 @@ function App() {
   // Animate red player toward target position using lerp
   const animateRedPlayer = useCallback(() => {
     const target = redPlayerTargetRef.current;
+    const zone = selectedZoneRef.current;
+    const zoneBounds = ZONE_BOUNDS[zone];
+
+    // Field bounds
+    const minX = (FIELD_PADDING / FIELD_WIDTH) * 100 + 3;
+    const maxX = ((FIELD_WIDTH - FIELD_PADDING) / FIELD_WIDTH) * 100 - 3;
 
     setRedPlayer((currentPos) => {
       const dx = target.x - currentPos.x;
@@ -171,7 +178,11 @@ function App() {
       // If close enough to target, snap to it and stop animating
       if (distance < POSITION_THRESHOLD) {
         isAnimatingRef.current = false;
-        return target;
+        // Clamp final position to be safe
+        return {
+          x: Math.max(minX, Math.min(maxX, target.x)),
+          y: Math.max(zoneBounds.minY, Math.min(zoneBounds.maxY, target.y)),
+        };
       }
 
       // Lerp toward target position
@@ -180,7 +191,11 @@ function App() {
         y: currentPos.y + dy * LERP_FACTOR,
       };
 
-      return newPos;
+      // Always clamp to field bounds and zone - safety net
+      return {
+        x: Math.max(minX, Math.min(maxX, newPos.x)),
+        y: Math.max(zoneBounds.minY, Math.min(zoneBounds.maxY, newPos.y)),
+      };
     });
 
     // Continue animation if still needed
@@ -239,6 +254,9 @@ function App() {
 
   // When zone changes, immediately reposition red player to the new zone
   useEffect(() => {
+    // Update the zone ref so animation can access it
+    selectedZoneRef.current = selectedZone;
+
     const newTarget = calculateRedPlayerTarget(bluePlayer, redPlayer, selectedZone);
     redPlayerTargetRef.current = newTarget;
 
