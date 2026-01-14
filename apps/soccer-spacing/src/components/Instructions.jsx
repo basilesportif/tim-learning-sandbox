@@ -42,7 +42,7 @@ const Instructions = ({ targetDistance, onDistanceChange }) => {
           </div>
           <div className="distance-control">
             <label htmlFor="distance-slider">
-              Spacing Distance: <strong>{targetDistance}px</strong>
+              Spacing Distance: <strong>{(targetDistance / 10).toFixed(0)}m</strong>
             </label>
             <input
               id="distance-slider"

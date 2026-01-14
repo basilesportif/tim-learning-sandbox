@@ -1,6 +1,10 @@
 import React from 'react';
 import './DistanceIndicator.css';
 
+// Standard soccer field: 105m x 68m, SVG viewBox: 1050 x 680
+// So 10 SVG units = 1 meter
+const PIXELS_PER_METER = 10;
+
 const DistanceIndicator = ({
   x1,
   y1,
@@ -9,8 +13,8 @@ const DistanceIndicator = ({
   targetDistance,
   currentDistance
 }) => {
-  // Calculate actual pixel distance for display
-  const displayDistance = Math.round(currentDistance);
+  // Convert pixels to meters (10 SVG units = 1 meter on a real field)
+  const displayMeters = (currentDistance / PIXELS_PER_METER).toFixed(1);
 
   // Determine if we're at target distance (within tolerance)
   const tolerance = 2;
@@ -46,7 +50,7 @@ const DistanceIndicator = ({
           strokeWidth: '0.3px'
         }}
       >
-        {displayDistance}px
+        {displayMeters}m
       </text>
     </svg>
   );
