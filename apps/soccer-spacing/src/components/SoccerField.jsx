@@ -1,7 +1,15 @@
 import React from 'react';
 import './SoccerField.css';
 
-const SoccerField = ({ children }) => {
+// Zone boundaries (as percentages of the playable field width)
+// Field playable area: x=25 to x=1025 (width 1000)
+const ZONE_CONFIG = {
+  left: { start: 25, end: 325 },   // 30% (0-30%)
+  middle: { start: 325, end: 725 }, // 40% (30-70%)
+  right: { start: 725, end: 1025 }, // 30% (70-100%)
+};
+
+const SoccerField = ({ children, selectedZone }) => {
   return (
     <div className="soccer-field-container">
       <svg
@@ -30,6 +38,57 @@ const SoccerField = ({ children }) => {
             fill={i % 2 === 0 ? '#2d8a3e' : '#34a047'}
           />
         ))}
+
+        {/* Zone corridor overlays */}
+        <g className="zone-corridors">
+          {/* Left Wing Zone */}
+          <rect
+            x={ZONE_CONFIG.left.start}
+            y="25"
+            width={ZONE_CONFIG.left.end - ZONE_CONFIG.left.start}
+            height="630"
+            fill="rgba(147, 197, 253, 0.15)"
+            className={`zone-corridor zone-left ${selectedZone === 'left' ? 'active' : ''}`}
+          />
+          {/* Middle Zone */}
+          <rect
+            x={ZONE_CONFIG.middle.start}
+            y="25"
+            width={ZONE_CONFIG.middle.end - ZONE_CONFIG.middle.start}
+            height="630"
+            fill="rgba(253, 224, 71, 0.1)"
+            className={`zone-corridor zone-middle ${selectedZone === 'middle' ? 'active' : ''}`}
+          />
+          {/* Right Wing Zone */}
+          <rect
+            x={ZONE_CONFIG.right.start}
+            y="25"
+            width={ZONE_CONFIG.right.end - ZONE_CONFIG.right.start}
+            height="630"
+            fill="rgba(252, 165, 165, 0.15)"
+            className={`zone-corridor zone-right ${selectedZone === 'right' ? 'active' : ''}`}
+          />
+
+          {/* Zone divider lines */}
+          <line
+            x1={ZONE_CONFIG.left.end}
+            y1="25"
+            x2={ZONE_CONFIG.left.end}
+            y2="655"
+            stroke="rgba(255, 255, 255, 0.3)"
+            strokeWidth="2"
+            strokeDasharray="10,5"
+          />
+          <line
+            x1={ZONE_CONFIG.middle.end}
+            y1="25"
+            x2={ZONE_CONFIG.middle.end}
+            y2="655"
+            stroke="rgba(255, 255, 255, 0.3)"
+            strokeWidth="2"
+            strokeDasharray="10,5"
+          />
+        </g>
 
         {/* Field outline */}
         <rect

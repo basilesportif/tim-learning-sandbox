@@ -2,9 +2,11 @@
   display: flex;
   flex-direction: column;
   min-height: 100vh;
+  min-height: 100dvh; /* Dynamic viewport height for mobile */
   padding: 15px;
   box-sizing: border-box;
   background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+  overflow-x: hidden;
 }
 
 .field-wrapper {
@@ -13,6 +15,8 @@
   align-items: center;
   justify-content: center;
   position: relative;
+  min-height: 0; /* Allow flex child to shrink */
+  overflow: auto;
 }
 
 /* Override default styles */
@@ -24,12 +28,42 @@
 @media (max-width: 768px) {
   .app {
     padding: 10px;
+    padding-top: 60px; /* Space for zone selector */
+  }
+
+  .field-wrapper {
+    align-items: flex-start;
   }
 }
 
 @media (max-width: 480px) {
   .app {
     padding: 8px;
+    padding-top: 55px;
+  }
+}
+
+/* Landscape orientation - maximize field */
+@media (orientation: landscape) and (max-height: 600px) {
+  .app {
+    padding: 8px;
+    padding-top: 50px;
+  }
+
+  .field-wrapper {
+    flex: 1;
+    min-height: 0;
+  }
+}
+
+/* Tablet landscape */
+@media (min-width: 768px) and (orientation: landscape) {
+  .app {
+    padding: 10px;
+  }
+
+  .field-wrapper {
+    flex: 1;
   }
 }
 

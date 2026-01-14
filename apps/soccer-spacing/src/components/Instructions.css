@@ -147,3 +147,44 @@
     font-size: 0.75rem;
   }
 }
+
+/* Landscape orientation - more compact */
+@media (orientation: landscape) and (max-height: 600px) {
+  .instructions {
+    padding: 6px 15px;
+    margin-bottom: 8px;
+  }
+
+  .title {
+    font-size: 1.1rem;
+    margin-bottom: 4px;
+  }
+
+  .description {
+    font-size: 0.85rem;
+    margin-bottom: 6px;
+  }
+
+  .tip-container {
+    margin-bottom: 6px;
+    gap: 8px;
+  }
+
+  .tip {
+    padding: 4px 10px;
+    font-size: 0.75rem;
+  }
+
+  .distance-control {
+    gap: 4px;
+  }
+
+  .distance-control label {
+    font-size: 0.8rem;
+  }
+
+  .slider {
+    width: 140px;
+    height: 6px;
+  }
+}

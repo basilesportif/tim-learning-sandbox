@@ -3,6 +3,7 @@ import SoccerField from './components/SoccerField';
 import Player from './components/Player';
 import DistanceIndicator from './components/DistanceIndicator';
 import Instructions from './components/Instructions';
+import ZoneSelector from './components/ZoneSelector';
 import './App.css';
 
 // Constants for field dimensions (based on SVG viewBox)
@@ -10,9 +11,25 @@ const FIELD_WIDTH = 1050;
 const FIELD_HEIGHT = 680;
 const FIELD_PADDING = 25; // Padding inside the field
 
+// Animation constants
+const MOVEMENT_DELAY_MS = 1000; // 1 second delay before red player starts moving
+const LERP_FACTOR = 0.05; // How fast the red player moves toward target (0-1, lower = slower)
+const POSITION_THRESHOLD = 0.1; // Stop animating when within this distance of target
+
+// Zone boundaries as percentages of field width
+// Based on playable area: x=25 to x=1025 (1000px width)
+const ZONE_BOUNDS = {
+  left: { minX: (25 / FIELD_WIDTH) * 100 + 3, maxX: (325 / FIELD_WIDTH) * 100 - 3 },
+  middle: { minX: (325 / FIELD_WIDTH) * 100 + 3, maxX: (725 / FIELD_WIDTH) * 100 - 3 },
+  right: { minX: (725 / FIELD_WIDTH) * 100 + 3, maxX: (1025 / FIELD_WIDTH) * 100 - 3 },
+};
+
 function App() {
   // Target distance between players (configurable)
   const [targetDistance, setTargetDistance] = useState(150);
+
+  // Zone selection for red player constraint
+  const [selectedZone, setSelectedZone] = useState('middle');
 
   // Player positions as percentages of field
   const [bluePlayer, setBluePlayer] = useState({ x: 35, y: 50 });
@@ -21,6 +38,12 @@ function App() {
   // Dragging state
   const [isDragging, setIsDragging] = useState(false);
   const fieldRef = useRef(null);
+
+  // Refs for delayed red player movement
+  const redPlayerTargetRef = useRef({ x: 65, y: 50 }); // Target position red player should move toward
+  const movementDelayTimerRef = useRef(null); // Timer for 1 second delay
+  const animationFrameRef = useRef(null); // requestAnimationFrame ID
+  const isAnimatingRef = useRef(false); // Whether animation is currently running
 
   // Calculate direction from red player to blue player (for direction indicator)
   const calculateDirection = useCallback((from, to) => {
@@ -59,14 +82,27 @@ function App() {
     };
   }, []);
 
-  // Update red player position to maintain constant distance
-  const updateRedPlayer = useCallback(
-    (newBluePos) => {
+  // Keep position within field bounds AND the selected zone (for red player)
+  const clampToZone = useCallback((pos, zone) => {
+    const zoneBounds = ZONE_BOUNDS[zone];
+    const minY = (FIELD_PADDING / FIELD_HEIGHT) * 100 + 3;
+    const maxY = ((FIELD_HEIGHT - FIELD_PADDING) / FIELD_HEIGHT) * 100 - 3;
+
+    return {
+      x: Math.max(zoneBounds.minX, Math.min(zoneBounds.maxX, pos.x)),
+      y: Math.max(minY, Math.min(maxY, pos.y)),
+    };
+  }, []);
+
+  // Calculate the ideal target position for red player (maintains distance from blue, constrained to zone)
+  const calculateRedPlayerTarget = useCallback(
+    (newBluePos, currentRedPos, zone) => {
       const targetDistPercent = pixelsToPercent(targetDistance);
+      const zoneBounds = ZONE_BOUNDS[zone];
 
       // Calculate current direction from blue to red
-      const dx = redPlayer.x - newBluePos.x;
-      const dy = redPlayer.y - newBluePos.y;
+      const dx = currentRedPos.x - newBluePos.x;
+      const dy = currentRedPos.y - newBluePos.y;
       const currentDistance = Math.sqrt(dx * dx + dy * dy);
 
       // If players are too close, we need to use a default direction
@@ -82,20 +118,134 @@ function App() {
       }
 
       // Calculate new position at target distance
-      const newRedPos = {
+      let newRedPos = {
         x: newBluePos.x + dirX * targetDistPercent,
         y: newBluePos.y + dirY * targetDistPercent,
       };
 
-      // Clamp to field bounds
-      const clampedPos = clampPosition(newRedPos);
+      // Clamp to zone bounds first
+      newRedPos = clampToZone(newRedPos, zone);
 
-      // If clamped, we might need to adjust to maintain distance
-      // by moving along the boundary
-      setRedPlayer(clampedPos);
+      // If clamping significantly changed the position, try to maintain distance
+      // by adjusting along the zone boundary
+      const clampedDx = newRedPos.x - newBluePos.x;
+      const clampedDy = newRedPos.y - newBluePos.y;
+      const clampedDistance = Math.sqrt(clampedDx * clampedDx + clampedDy * clampedDy);
+
+      // If we're too close after clamping, try to move vertically to maintain distance
+      if (clampedDistance < targetDistPercent * 0.7) {
+        // Determine which edge we're constrained to
+        const atLeftEdge = newRedPos.x <= zoneBounds.minX + 1;
+        const atRightEdge = newRedPos.x >= zoneBounds.maxX - 1;
+
+        if (atLeftEdge || atRightEdge) {
+          // Calculate how much vertical distance we need
+          const horizontalDist = Math.abs(newRedPos.x - newBluePos.x);
+          const verticalDistNeeded = Math.sqrt(
+            Math.max(0, targetDistPercent * targetDistPercent - horizontalDist * horizontalDist)
+          );
+
+          // Move vertically in the direction we were heading
+          const verticalDir = dy >= 0 ? 1 : -1;
+          newRedPos.y = newBluePos.y + verticalDir * verticalDistNeeded;
+        }
+      }
+
+      // Final clamp to zone bounds
+      return clampToZone(newRedPos, zone);
     },
-    [redPlayer, targetDistance, pixelsToPercent, clampPosition]
+    [targetDistance, pixelsToPercent, clampToZone]
   );
+
+  // Animate red player toward target position using lerp
+  const animateRedPlayer = useCallback(() => {
+    const target = redPlayerTargetRef.current;
+
+    setRedPlayer((currentPos) => {
+      const dx = target.x - currentPos.x;
+      const dy = target.y - currentPos.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      // If close enough to target, snap to it and stop animating
+      if (distance < POSITION_THRESHOLD) {
+        isAnimatingRef.current = false;
+        return target;
+      }
+
+      // Lerp toward target position
+      const newPos = {
+        x: currentPos.x + dx * LERP_FACTOR,
+        y: currentPos.y + dy * LERP_FACTOR,
+      };
+
+      return newPos;
+    });
+
+    // Continue animation if still needed
+    if (isAnimatingRef.current) {
+      animationFrameRef.current = requestAnimationFrame(animateRedPlayer);
+    }
+  }, []);
+
+  // Start the delayed movement animation
+  const startDelayedMovement = useCallback(() => {
+    // Clear any existing delay timer (reset the delay when blue player keeps moving)
+    if (movementDelayTimerRef.current) {
+      clearTimeout(movementDelayTimerRef.current);
+    }
+
+    // If already animating, just let it continue toward the new target
+    // (the target ref is already updated)
+    if (isAnimatingRef.current) {
+      return;
+    }
+
+    // Set up the delay before starting animation
+    movementDelayTimerRef.current = setTimeout(() => {
+      // Start animation if not already running
+      if (!isAnimatingRef.current) {
+        isAnimatingRef.current = true;
+        animationFrameRef.current = requestAnimationFrame(animateRedPlayer);
+      }
+    }, MOVEMENT_DELAY_MS);
+  }, [animateRedPlayer]);
+
+  // Update red player target position (called when blue player moves)
+  const updateRedPlayerTarget = useCallback(
+    (newBluePos) => {
+      // Calculate where red player should end up (constrained to selected zone)
+      const newTarget = calculateRedPlayerTarget(newBluePos, redPlayerTargetRef.current, selectedZone);
+      redPlayerTargetRef.current = newTarget;
+
+      // Start the delayed movement toward target
+      startDelayedMovement();
+    },
+    [calculateRedPlayerTarget, startDelayedMovement, selectedZone]
+  );
+
+  // Cleanup animation on unmount
+  useEffect(() => {
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+      if (movementDelayTimerRef.current) {
+        clearTimeout(movementDelayTimerRef.current);
+      }
+    };
+  }, []);
+
+  // When zone changes, immediately reposition red player to the new zone
+  useEffect(() => {
+    const newTarget = calculateRedPlayerTarget(bluePlayer, redPlayer, selectedZone);
+    redPlayerTargetRef.current = newTarget;
+
+    // Start animation to move to new zone
+    if (!isAnimatingRef.current) {
+      isAnimatingRef.current = true;
+      animationFrameRef.current = requestAnimationFrame(animateRedPlayer);
+    }
+  }, [selectedZone]); // Only trigger when zone changes
 
   // Get position from mouse or touch event
   const getEventPosition = useCallback((e, element) => {
@@ -133,9 +283,9 @@ function App() {
       const clampedPos = clampPosition(newPos);
 
       setBluePlayer(clampedPos);
-      updateRedPlayer(clampedPos);
+      updateRedPlayerTarget(clampedPos);
     },
-    [isDragging, getEventPosition, clampPosition, updateRedPlayer]
+    [isDragging, getEventPosition, clampPosition, updateRedPlayerTarget]
   );
 
   // Handle drag end
@@ -178,13 +328,18 @@ function App() {
 
   return (
     <div className="app">
+      <ZoneSelector
+        selectedZone={selectedZone}
+        onZoneChange={setSelectedZone}
+      />
+
       <Instructions
         targetDistance={targetDistance}
         onDistanceChange={setTargetDistance}
       />
 
       <div className="field-wrapper" ref={fieldRef}>
-        <SoccerField>
+        <SoccerField selectedZone={selectedZone}>
           <DistanceIndicator
             x1={bluePlayer.x}
             y1={bluePlayer.y}
