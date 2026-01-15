@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { forwardRef } from 'react';
 import './SoccerField.css';
 
 // Zone boundaries (as percentages of the playable field HEIGHT)
@@ -10,9 +10,9 @@ const ZONE_CONFIG = {
   right: { start: 466, end: 655 },  // Bottom 30% (70-100%)
 };
 
-const SoccerField = ({ children, selectedZone }) => {
+const SoccerField = forwardRef(({ children, selectedZone }, ref) => {
   return (
-    <div className="soccer-field-container">
+    <div className="soccer-field-container" ref={ref}>
       <svg
         className="soccer-field"
         viewBox="0 0 1050 680"
@@ -264,6 +264,6 @@ const SoccerField = ({ children, selectedZone }) => {
       {children}
     </div>
   );
-};
+});
 
 export default SoccerField;

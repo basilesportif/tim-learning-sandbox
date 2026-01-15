@@ -15,23 +15,23 @@ const MOVEMENT_DELAY_MS = 1000; // 1 second delay before red player starts movin
 const LERP_FACTOR = 0.12; // How fast the red player moves toward target (0-1, lower = slower)
 const POSITION_THRESHOLD = 0.1; // Stop animating when within this distance of target
 
-// Field boundaries as percentages (playable area with buffer for player size)
-// SVG grass area: x=25-1025, y=25-655
-// Adding buffer so player circles don't overlap the lines
+// Field boundaries as percentages of SVG viewBox (1050x680)
+// Field lines: x=25-1025, y=25-655
+// Adding small buffer for player circles
 const FIELD_BOUNDS = {
-  minX: 5,   // ~5% from left edge
-  maxX: 95,  // ~95% from left edge
-  minY: 6,   // ~6% from top edge
-  maxY: 94,  // ~94% from top edge
+  minX: 4,   // ~4% (x=42 in SVG, inside 6-yard box)
+  maxX: 96,  // ~96% (x=1008 in SVG, inside 6-yard box)
+  minY: 5,   // ~5% (y=34 in SVG, inside field)
+  maxY: 95,  // ~95% (y=646 in SVG, inside field)
 };
 
-// Zone boundaries as percentages of field HEIGHT
-// Based on playable area: y=25 to y=655 (630px height)
+// Zone boundaries as percentages of SVG viewBox HEIGHT (680)
+// y=25 is ~3.7%, y=655 is ~96.3%
 // Left wing = TOP, Right wing = BOTTOM
 const ZONE_BOUNDS = {
-  left: { minY: 6, maxY: 28 },      // Top ~30%
-  middle: { minY: 34, maxY: 66 },   // Middle ~40%
-  right: { minY: 72, maxY: 94 },    // Bottom ~30%
+  left: { minY: 5, maxY: 30 },      // Top ~30% of field
+  middle: { minY: 33, maxY: 67 },   // Middle ~40% of field
+  right: { minY: 70, maxY: 95 },    // Bottom ~30% of field
 };
 
 function App() {
@@ -362,8 +362,8 @@ function App() {
         onDistanceChange={setTargetDistance}
       />
 
-      <div className="field-wrapper" ref={fieldRef}>
-        <SoccerField selectedZone={selectedZone}>
+      <div className="field-wrapper">
+        <SoccerField selectedZone={selectedZone} ref={fieldRef}>
           <DistanceIndicator
             x1={safeBluePlayer.x}
             y1={safeBluePlayer.y}
@@ -394,16 +394,16 @@ function App() {
             label="Open Player"
           />
 
-          {/* Goalies */}
+          {/* Goalies - positioned in front of goal line */}
           <Player
-            x={3}
+            x={5}
             y={50}
             color="#3b82f6"
             direction={0}
             label="Goalie"
           />
           <Player
-            x={97}
+            x={95}
             y={50}
             color="#eab308"
             direction={Math.PI}
