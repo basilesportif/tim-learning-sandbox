@@ -89,11 +89,14 @@ function App() {
     }
   }, [targetTime, userClockTime]);
 
-  // Dismiss feedback and generate new question if correct
+  // Dismiss feedback and generate new question if correct, or clear selections if incorrect
   const handleFeedbackDismiss = useCallback(() => {
     if (feedbackState === 'correct') {
       newQuestion();
     } else {
+      // Clear selections so auto-submit doesn't trigger again
+      setSelectedHour(null);
+      setSelectedMinute(null);
       setFeedbackState(null);
     }
   }, [feedbackState, newQuestion]);
