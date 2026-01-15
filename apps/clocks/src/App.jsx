@@ -124,10 +124,6 @@ function App() {
         preload="auto"
       />
 
-      <header className="app-header">
-        <h1 className="app-title">Clock Quiz</h1>
-      </header>
-
       <ModeSelector selectedMode={mode} onModeChange={handleModeChange} />
 
       <main className="app-main">

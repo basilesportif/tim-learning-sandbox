@@ -8,23 +8,6 @@
   overflow: hidden;
 }
 
-.app-header {
-  text-align: center;
-  padding: 4px 0;
-  flex-shrink: 0;
-}
-
-.app-title {
-  font-size: 1.5rem;
-  font-weight: 800;
-  color: var(--text-primary);
-  margin: 0;
-  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
 .app-main {
   flex: 1;
   display: flex;
@@ -124,10 +107,7 @@
 @media (max-width: 480px) {
   .app {
     padding: 8px;
-  }
-
-  .app-title {
-    font-size: 1.3rem;
+    padding-top: 60px; /* Space for hamburger button */
   }
 
   .app-main {
@@ -146,13 +126,10 @@
 }
 
 /* Tablets - iPad portrait and landscape */
-@media (min-width: 700px) and (min-height: 550px) {
+@media (min-width: 700px) {
   .app {
     padding: 16px 24px;
-  }
-
-  .app-title {
-    font-size: 1.8rem;
+    padding-left: 220px; /* Space for sidebar */
   }
 
   .app-main {
@@ -190,6 +167,13 @@
   }
 }
 
+/* Large screens */
+@media (min-width: 1000px) {
+  .app {
+    padding-left: 240px; /* Wider sidebar */
+  }
+}
+
 /* iPad landscape - ensure side by side */
 @media (min-width: 900px) and (min-height: 550px) {
   .app-main {
@@ -206,14 +190,7 @@
 @media (orientation: landscape) and (max-height: 500px) {
   .app {
     padding: 6px 12px;
-  }
-
-  .app-header {
-    padding: 2px 0;
-  }
-
-  .app-title {
-    font-size: 1.1rem;
+    padding-left: 60px; /* Space for hamburger */
   }
 
   .app-main {

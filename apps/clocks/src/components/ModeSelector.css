@@ -1,103 +1,184 @@
-.mode-selector {
-  padding: 6px;
-  flex-shrink: 0;
+/* Hamburger button - mobile only */
+.hamburger-button {
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  background: white;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  touch-action: manipulation;
 }
 
-.mode-buttons {
+.hamburger-icon {
   display: flex;
-  gap: 6px;
-  justify-content: center;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 5px;
+  width: 22px;
+}
+
+.hamburger-icon span {
+  display: block;
+  height: 3px;
+  background: var(--text-primary);
+  border-radius: 2px;
+  transition: all 0.2s ease;
+}
+
+/* Overlay for mobile */
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 999;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Sidebar */
+.mode-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 100vh;
+  height: 100dvh;
+  width: 200px;
+  background: white;
+  box-shadow: 2px 0 12px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  padding: 70px 12px 20px;
+  box-sizing: border-box;
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+}
+
+.mode-sidebar.open {
+  transform: translateX(0);
+}
+
+.mode-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .mode-button {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 8px 12px;
-  font-size: 0.8rem;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 0.95rem;
   font-weight: 600;
-  color: var(--mode-text);
-  background: var(--mode-bg);
+  color: var(--text-primary);
+  background: transparent;
   border: 2px solid transparent;
-  border-radius: 20px;
+  border-radius: 10px;
   cursor: pointer;
   transition: all 0.2s ease;
   touch-action: manipulation;
+  text-align: left;
 }
 
 .mode-button:hover {
-  border-color: var(--mode-border);
-  transform: translateY(-1px);
+  background: var(--mode-bg);
 }
 
 .mode-button.active {
   background: var(--mode-border);
   color: #78350f;
-  box-shadow: 0 2px 8px rgba(251, 191, 36, 0.4);
+  box-shadow: 0 2px 8px rgba(251, 191, 36, 0.3);
 }
 
 .mode-emoji {
-  font-size: 1.1rem;
+  font-size: 1.2rem;
+  flex-shrink: 0;
 }
 
 .mode-label {
   white-space: nowrap;
 }
 
-/* Responsive */
-@media (max-width: 480px) {
-  .mode-selector {
-    padding: 4px;
+/* Desktop/Tablet - sidebar always open */
+@media (min-width: 700px) {
+  .hamburger-button {
+    display: none;
   }
 
-  .mode-buttons {
-    gap: 4px;
+  .sidebar-overlay {
+    display: none;
+  }
+
+  .mode-sidebar {
+    transform: translateX(0);
+    padding-top: 20px;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
   }
 
   .mode-button {
-    padding: 6px 10px;
-    font-size: 0.75rem;
-  }
-
-  .mode-emoji {
-    font-size: 0.9rem;
+    padding: 14px 16px;
+    font-size: 1rem;
   }
 }
 
-/* Phone landscape */
+/* Large screens */
+@media (min-width: 1000px) {
+  .mode-sidebar {
+    width: 220px;
+  }
+
+  .mode-button {
+    padding: 16px 18px;
+    font-size: 1.05rem;
+  }
+}
+
+/* Phone landscape - compact sidebar */
 @media (orientation: landscape) and (max-height: 500px) {
-  .mode-selector {
-    padding: 2px;
+  .hamburger-button {
+    top: 8px;
+    left: 8px;
+    width: 38px;
+    height: 38px;
   }
 
-  .mode-button {
-    padding: 4px 8px;
-    font-size: 0.7rem;
-    gap: 3px;
+  .hamburger-icon {
+    width: 18px;
+    gap: 4px;
   }
 
-  .mode-emoji {
-    font-size: 0.85rem;
+  .hamburger-icon span {
+    height: 2px;
   }
-}
 
-@media (max-width: 360px) {
-  .mode-buttons {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+  .mode-sidebar {
+    width: 180px;
+    padding: 50px 10px 12px;
+  }
+
+  .mode-nav {
     gap: 4px;
   }
 
   .mode-button {
-    justify-content: center;
-  }
-}
-
-/* Tablets */
-@media (min-width: 700px) and (min-height: 550px) {
-  .mode-button {
-    padding: 10px 14px;
+    padding: 8px 10px;
     font-size: 0.85rem;
+    gap: 8px;
+  }
+
+  .mode-emoji {
+    font-size: 1rem;
   }
 }
