@@ -107,21 +107,31 @@
 @media (max-width: 480px) {
   .app {
     padding: 4px;
-    padding-top: 44px; /* Space for hamburger button - minimal since it's in corner */
+    padding-top: 36px; /* Space for hamburger button - minimal since it's in corner */
   }
 
   .app-main {
+    gap: 2px;
+    padding: 2px 0;
+  }
+
+  .controls-area {
+    gap: 4px;
+  }
+
+  .read-mode-controls,
+  .set-mode-controls {
     gap: 4px;
   }
 
   .check-button {
-    padding: 10px 20px;
-    font-size: 0.95rem;
+    padding: 8px 18px;
+    font-size: 0.9rem;
   }
 
   .skip-button {
-    padding: 6px 12px;
-    font-size: 0.8rem;
+    padding: 4px 10px;
+    font-size: 0.75rem;
   }
 }
 

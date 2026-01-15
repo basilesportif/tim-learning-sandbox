@@ -20,15 +20,16 @@
 /* Responsive */
 @media (max-width: 480px) {
   .quiz-prompt {
-    padding: 4px;
+    padding: 2px;
   }
 
   .prompt-text {
-    font-size: 1.1rem;
+    font-size: 1rem;
+    margin: 0;
   }
 
   .prompt-hint {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
   }
 }
 

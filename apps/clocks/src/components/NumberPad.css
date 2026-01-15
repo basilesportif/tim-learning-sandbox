@@ -110,21 +110,30 @@
 /* Responsive */
 @media (max-width: 480px) {
   .number-pad {
-    padding: 8px;
-    gap: 6px;
+    padding: 6px;
+    gap: 4px;
     width: calc(100vw - 16px);
     max-width: 360px;
   }
 
+  .pad-section {
+    gap: 2px;
+  }
+
+  .pad-label {
+    font-size: 0.7rem;
+  }
+
   .button-grid {
-    gap: 4px;
+    gap: 3px;
   }
 
   .number-button {
-    min-width: 44px;
-    min-height: 44px;
-    font-size: 0.95rem;
-    padding: 4px;
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 0.85rem;
+    padding: 2px;
+    border-radius: 8px;
   }
 
   .hours-grid,
@@ -133,8 +142,9 @@
   }
 
   .submit-button {
-    padding: 10px 18px;
-    font-size: 0.95rem;
+    margin-top: 2px;
+    padding: 8px 14px;
+    font-size: 0.85rem;
   }
 }
 
