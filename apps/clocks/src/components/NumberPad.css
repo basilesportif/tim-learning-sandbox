@@ -110,8 +110,10 @@
 /* Responsive */
 @media (max-width: 480px) {
   .number-pad {
-    padding: 10px;
-    gap: 8px;
+    padding: 8px;
+    gap: 6px;
+    width: calc(100vw - 16px);
+    max-width: 360px;
   }
 
   .button-grid {
@@ -119,9 +121,9 @@
   }
 
   .number-button {
-    min-width: 40px;
-    min-height: 40px;
-    font-size: 0.9rem;
+    min-width: 44px;
+    min-height: 44px;
+    font-size: 0.95rem;
     padding: 4px;
   }
 

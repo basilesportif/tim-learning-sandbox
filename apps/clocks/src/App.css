@@ -106,12 +106,12 @@
 /* Mobile phones - portrait */
 @media (max-width: 480px) {
   .app {
-    padding: 8px;
-    padding-top: 60px; /* Space for hamburger button */
+    padding: 4px;
+    padding-top: 44px; /* Space for hamburger button - minimal since it's in corner */
   }
 
   .app-main {
-    gap: 6px;
+    gap: 4px;
   }
 
   .check-button {

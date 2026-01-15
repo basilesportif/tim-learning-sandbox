@@ -20,7 +20,7 @@
 /* Responsive */
 @media (max-width: 480px) {
   .quiz-prompt {
-    padding: 6px;
+    padding: 4px;
   }
 
   .prompt-text {

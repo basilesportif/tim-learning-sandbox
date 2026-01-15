@@ -129,12 +129,12 @@
 /* Responsive */
 @media (max-width: 480px) {
   .clock-container {
-    width: 200px;
-    height: 200px;
+    width: min(240px, calc(100vw - 24px));
+    height: min(240px, calc(100vw - 24px));
   }
 
   .clock-number {
-    font-size: 12px;
+    font-size: 13px;
   }
 }
 
