@@ -3,21 +3,22 @@
 /**
  * Convert hour and minute to hour hand angle (in degrees)
  * Hour hand: 30 degrees per hour + 0.5 degrees per minute
- * -90 offset so 12 o'clock is at top (0 degrees in CSS rotation)
+ * SVG line points up by default (12 o'clock), CSS rotate(0) keeps it there
+ * rotate(90deg) points to 3 o'clock, rotate(180deg) to 6, etc.
  */
 export function hourToAngle(hour, minute = 0) {
-  const baseAngle = (hour % 12) * 30;
-  const minuteOffset = minute * 0.5;
-  return baseAngle + minuteOffset - 90;
+  const baseAngle = (hour % 12) * 30; // 12->0, 1->30, 2->60, 3->90...
+  const minuteOffset = minute * 0.5;  // Hour hand moves slightly with minutes
+  return baseAngle + minuteOffset;
 }
 
 /**
  * Convert minute to minute hand angle (in degrees)
  * Minute hand: 6 degrees per minute
- * -90 offset so 12 o'clock is at top
+ * 0 minutes = 0 degrees (pointing up/12), 15 min = 90 deg, 30 min = 180 deg
  */
 export function minuteToAngle(minute) {
-  return minute * 6 - 90;
+  return minute * 6;
 }
 
 /**
@@ -25,7 +26,7 @@ export function minuteToAngle(minute) {
  * Returns hour 1-12
  */
 export function angleToHour(angle) {
-  const normalized = ((angle + 90) % 360 + 360) % 360;
+  const normalized = ((angle % 360) + 360) % 360;
   const hour = Math.floor(normalized / 30);
   return hour === 0 ? 12 : hour;
 }
@@ -36,7 +37,7 @@ export function angleToHour(angle) {
  * Returns minute 0-55
  */
 export function angleToMinute(angle) {
-  const normalized = ((angle + 90) % 360 + 360) % 360;
+  const normalized = ((angle % 360) + 360) % 360;
   const rawMinute = Math.round(normalized / 6);
   // Snap to 5-minute increments
   const snapped = Math.round(rawMinute / 5) * 5;

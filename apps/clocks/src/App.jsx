@@ -45,12 +45,8 @@ function App() {
   }, [newQuestion]);
 
   // Handle answer submission (for read modes)
-  const handleSubmit = useCallback(() => {
-    const userAnswer = {
-      hour: selectedHour,
-      minute: selectedMinute,
-    };
-
+  const checkAnswer = useCallback((hour, minute) => {
+    const userAnswer = { hour, minute };
     const isCorrect = validateAnswer(targetTime, userAnswer, mode);
 
     if (isCorrect) {
@@ -60,7 +56,20 @@ function App() {
       setFeedbackState('incorrect');
       incorrectAudioRef.current?.play().catch(() => {});
     }
-  }, [targetTime, selectedHour, selectedMinute, mode]);
+  }, [targetTime, mode]);
+
+  // Auto-submit when answer is complete based on mode
+  useEffect(() => {
+    if (feedbackState !== null) return; // Don't auto-submit if feedback is showing
+
+    if (mode === 'hour-only' && selectedHour !== null) {
+      checkAnswer(selectedHour, 0);
+    } else if (mode === 'minute-only' && selectedMinute !== null) {
+      checkAnswer(0, selectedMinute);
+    } else if ((mode === 'read') && selectedHour !== null && selectedMinute !== null) {
+      checkAnswer(selectedHour, selectedMinute);
+    }
+  }, [mode, selectedHour, selectedMinute, feedbackState, checkAnswer]);
 
   // Handle clock hand drag (for set mode)
   const handleClockTimeChange = useCallback((newTime) => {
@@ -158,7 +167,6 @@ function App() {
                 selectedMinute={selectedMinute}
                 onHourSelect={setSelectedHour}
                 onMinuteSelect={setSelectedMinute}
-                onSubmit={handleSubmit}
                 disabled={feedbackState !== null}
               />
             </div>
@@ -173,6 +181,7 @@ function App() {
       <FeedbackOverlay
         state={feedbackState}
         correctAnswer={feedbackState === 'incorrect' ? targetTime : null}
+        mode={mode}
         onDismiss={handleFeedbackDismiss}
       />
     </div>

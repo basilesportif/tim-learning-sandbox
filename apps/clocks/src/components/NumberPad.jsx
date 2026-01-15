@@ -6,7 +6,6 @@ const NumberPad = ({
   selectedMinute,
   onHourSelect,
   onMinuteSelect,
-  onSubmit,
   disabled = false,
 }) => {
   const showHours = mode === 'read' || mode === 'hour-only';
@@ -17,9 +16,6 @@ const NumberPad = ({
 
   // Minutes 0-55 by 5s
   const minutes = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
-
-  const canSubmit = (showHours ? selectedHour !== null : true) &&
-                    (showMinutes ? selectedMinute !== null : true);
 
   return (
     <div className={`number-pad ${disabled ? 'disabled' : ''}`}>
@@ -58,14 +54,6 @@ const NumberPad = ({
           </div>
         </div>
       )}
-
-      <button
-        className={`submit-button ${canSubmit ? 'ready' : ''}`}
-        onClick={onSubmit}
-        disabled={disabled || !canSubmit}
-      >
-        Check Answer
-      </button>
     </div>
   );
 };
