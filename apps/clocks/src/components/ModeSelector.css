@@ -1,0 +1,103 @@
+.mode-selector {
+  padding: 6px;
+  flex-shrink: 0;
+}
+
+.mode-buttons {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.mode-button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--mode-text);
+  background: var(--mode-bg);
+  border: 2px solid transparent;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  touch-action: manipulation;
+}
+
+.mode-button:hover {
+  border-color: var(--mode-border);
+  transform: translateY(-1px);
+}
+
+.mode-button.active {
+  background: var(--mode-border);
+  color: #78350f;
+  box-shadow: 0 2px 8px rgba(251, 191, 36, 0.4);
+}
+
+.mode-emoji {
+  font-size: 1.1rem;
+}
+
+.mode-label {
+  white-space: nowrap;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .mode-selector {
+    padding: 4px;
+  }
+
+  .mode-buttons {
+    gap: 4px;
+  }
+
+  .mode-button {
+    padding: 6px 10px;
+    font-size: 0.75rem;
+  }
+
+  .mode-emoji {
+    font-size: 0.9rem;
+  }
+}
+
+/* Phone landscape */
+@media (orientation: landscape) and (max-height: 500px) {
+  .mode-selector {
+    padding: 2px;
+  }
+
+  .mode-button {
+    padding: 4px 8px;
+    font-size: 0.7rem;
+    gap: 3px;
+  }
+
+  .mode-emoji {
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .mode-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+  }
+
+  .mode-button {
+    justify-content: center;
+  }
+}
+
+/* Tablets */
+@media (min-width: 700px) and (min-height: 550px) {
+  .mode-button {
+    padding: 10px 14px;
+    font-size: 0.85rem;
+  }
+}

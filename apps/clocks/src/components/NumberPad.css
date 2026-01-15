@@ -1,0 +1,206 @@
+.number-pad {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.number-pad.disabled {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.pad-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pad-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+  margin: 0;
+}
+
+.button-grid {
+  display: grid;
+  gap: 6px;
+  justify-content: center;
+}
+
+.hours-grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.minutes-grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.number-button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 6px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: white;
+  border: 2px solid #e2e8f0;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  touch-action: manipulation;
+}
+
+.number-button:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: var(--button-primary);
+}
+
+.number-button:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.number-button.selected {
+  background: var(--button-primary);
+  border-color: var(--button-selected);
+  color: white;
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.4);
+}
+
+.number-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.submit-button {
+  margin-top: 4px;
+  padding: 10px 20px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: white;
+  background: #94a3b8;
+  border: none;
+  border-radius: 10px;
+  cursor: not-allowed;
+  transition: all 0.2s ease;
+  touch-action: manipulation;
+}
+
+.submit-button.ready {
+  background: var(--button-primary);
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+}
+
+.submit-button.ready:hover {
+  background: var(--button-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4);
+}
+
+.submit-button.ready:active {
+  transform: translateY(0);
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .number-pad {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .button-grid {
+    gap: 4px;
+  }
+
+  .number-button {
+    min-width: 40px;
+    min-height: 40px;
+    font-size: 0.9rem;
+    padding: 4px;
+  }
+
+  .hours-grid,
+  .minutes-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+
+  .submit-button {
+    padding: 10px 18px;
+    font-size: 0.95rem;
+  }
+}
+
+/* Phone landscape - very compact */
+@media (orientation: landscape) and (max-height: 500px) {
+  .number-pad {
+    padding: 8px;
+    gap: 4px;
+  }
+
+  .pad-section {
+    gap: 2px;
+  }
+
+  .pad-label {
+    font-size: 0.7rem;
+  }
+
+  .button-grid {
+    gap: 3px;
+  }
+
+  .number-button {
+    min-width: 36px;
+    min-height: 36px;
+    font-size: 0.85rem;
+    padding: 3px;
+    border-radius: 8px;
+  }
+
+  .hours-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+
+  .minutes-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+
+  .submit-button {
+    margin-top: 2px;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+  }
+}
+
+/* Tablets - larger buttons for touch */
+@media (min-width: 700px) and (min-height: 550px) {
+  .number-pad {
+    padding: 14px;
+    gap: 10px;
+  }
+
+  .hours-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+
+  .minutes-grid {
+    grid-template-columns: repeat(6, 1fr);
+  }
+
+  .number-button {
+    min-width: 50px;
+    min-height: 50px;
+    font-size: 1.1rem;
+  }
+
+  .submit-button {
+    padding: 12px 24px;
+    font-size: 1.05rem;
+  }
+}

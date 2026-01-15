@@ -1,0 +1,175 @@
+.clock-container {
+  width: 240px;
+  height: 240px;
+  border-radius: 50%;
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+  flex-shrink: 0;
+}
+
+.clock-face {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.15));
+}
+
+/* Clock background */
+.clock-bg {
+  fill: var(--clock-border);
+}
+
+.clock-inner {
+  fill: var(--clock-face);
+}
+
+/* Numbers */
+.clock-number {
+  font-size: 14px;
+  font-weight: 700;
+  fill: var(--clock-numbers);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Tick marks */
+.tick-major {
+  stroke: var(--tick-major);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+
+.tick-minor {
+  stroke: var(--tick-minor);
+  stroke-width: 1;
+  stroke-linecap: round;
+}
+
+/* Hands */
+.hand line {
+  stroke-linecap: round;
+  transition: stroke 0.2s ease;
+}
+
+.hour-hand line {
+  stroke: var(--hour-hand);
+  stroke-width: 6;
+}
+
+.minute-hand line {
+  stroke: var(--minute-hand);
+  stroke-width: 4;
+}
+
+/* Interactive hands */
+.hand.interactive {
+  cursor: grab;
+}
+
+.hand.interactive:active {
+  cursor: grabbing;
+}
+
+.hand-grab {
+  fill: transparent;
+  stroke: none;
+}
+
+.hand.interactive:hover line {
+  filter: brightness(1.1);
+}
+
+/* Center dot */
+.clock-center {
+  fill: var(--clock-center);
+}
+
+/* Feedback animations */
+.clock-container.feedback-correct {
+  animation: celebrate 0.6s ease-in-out;
+  box-shadow: 0 0 30px var(--correct-glow), 0 0 60px var(--correct-glow);
+}
+
+.clock-container.feedback-incorrect {
+  animation: shake 0.4s ease-in-out;
+  box-shadow: 0 0 20px var(--incorrect-glow);
+}
+
+@keyframes celebrate {
+  0%, 100% {
+    transform: scale(1);
+  }
+  25% {
+    transform: scale(1.05);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+  75% {
+    transform: scale(1.05);
+  }
+}
+
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-8px);
+  }
+  40% {
+    transform: translateX(8px);
+  }
+  60% {
+    transform: translateX(-6px);
+  }
+  80% {
+    transform: translateX(6px);
+  }
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .clock-container {
+    width: 200px;
+    height: 200px;
+  }
+
+  .clock-number {
+    font-size: 12px;
+  }
+}
+
+/* Phone landscape - smaller clock */
+@media (orientation: landscape) and (max-height: 500px) {
+  .clock-container {
+    width: 180px;
+    height: 180px;
+  }
+
+  .clock-number {
+    font-size: 11px;
+  }
+}
+
+/* Tablets - iPad */
+@media (min-width: 700px) and (min-height: 550px) {
+  .clock-container {
+    width: 280px;
+    height: 280px;
+  }
+
+  .clock-number {
+    font-size: 15px;
+  }
+}
+
+/* Large tablets / iPad Pro landscape */
+@media (min-width: 1000px) and (min-height: 600px) {
+  .clock-container {
+    width: 320px;
+    height: 320px;
+  }
+
+  .clock-number {
+    font-size: 16px;
+  }
+}

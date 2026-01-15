@@ -1,0 +1,252 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  padding: 12px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.app-header {
+  text-align: center;
+  padding: 4px 0;
+  flex-shrink: 0;
+}
+
+.app-title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 0;
+  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 4px 0;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.clock-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.clock-section {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.controls-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.read-mode-controls,
+.set-mode-controls {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.check-button {
+  padding: 10px 24px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: white;
+  background: var(--button-primary);
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  touch-action: manipulation;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+}
+
+.check-button:hover {
+  background: var(--button-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4);
+}
+
+.check-button:active {
+  transform: translateY(0);
+}
+
+.drag-hint {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  text-align: center;
+  margin: 0;
+}
+
+.skip-button {
+  padding: 8px 16px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 2px solid #e2e8f0;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  touch-action: manipulation;
+  flex-shrink: 0;
+}
+
+.skip-button:hover {
+  background: white;
+  border-color: var(--text-secondary);
+}
+
+/* Mobile phones - portrait */
+@media (max-width: 480px) {
+  .app {
+    padding: 8px;
+  }
+
+  .app-title {
+    font-size: 1.3rem;
+  }
+
+  .app-main {
+    gap: 6px;
+  }
+
+  .check-button {
+    padding: 10px 20px;
+    font-size: 0.95rem;
+  }
+
+  .skip-button {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+}
+
+/* Tablets - iPad portrait and landscape */
+@media (min-width: 700px) and (min-height: 550px) {
+  .app {
+    padding: 16px 24px;
+  }
+
+  .app-title {
+    font-size: 1.8rem;
+  }
+
+  .app-main {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: center;
+    align-items: center;
+    gap: 32px;
+    padding: 8px;
+  }
+
+  .clock-area {
+    flex: 0 0 auto;
+  }
+
+  .controls-area {
+    flex: 0 0 auto;
+    gap: 12px;
+  }
+
+  .read-mode-controls,
+  .set-mode-controls {
+    min-width: 320px;
+    max-width: 420px;
+    gap: 12px;
+  }
+
+  .skip-button {
+    margin-top: 8px;
+  }
+
+  .check-button {
+    padding: 12px 28px;
+    font-size: 1.05rem;
+  }
+}
+
+/* iPad landscape - ensure side by side */
+@media (min-width: 900px) and (min-height: 550px) {
+  .app-main {
+    gap: 48px;
+  }
+
+  .read-mode-controls,
+  .set-mode-controls {
+    max-width: 450px;
+  }
+}
+
+/* Phone landscape - compact side by side */
+@media (orientation: landscape) and (max-height: 500px) {
+  .app {
+    padding: 6px 12px;
+  }
+
+  .app-header {
+    padding: 2px 0;
+  }
+
+  .app-title {
+    font-size: 1.1rem;
+  }
+
+  .app-main {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .clock-area {
+    flex: 0 0 auto;
+  }
+
+  .controls-area {
+    flex: 1;
+    min-width: 240px;
+    max-width: 320px;
+    gap: 4px;
+  }
+
+  .read-mode-controls,
+  .set-mode-controls {
+    gap: 4px;
+  }
+
+  .skip-button {
+    padding: 4px 10px;
+    font-size: 0.75rem;
+  }
+
+  .check-button {
+    padding: 8px 16px;
+    font-size: 0.9rem;
+  }
+}

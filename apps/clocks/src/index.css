@@ -1,0 +1,91 @@
+/* Colorful Kid-Friendly Theme for Clocks App */
+
+:root {
+  /* Background colors */
+  --bg-primary: #e0f2fe;
+  --bg-secondary: #f0f9ff;
+  --bg-gradient-start: #bfdbfe;
+  --bg-gradient-end: #e0f2fe;
+
+  /* Clock colors */
+  --clock-face: #ffffff;
+  --clock-border: #3b82f6;
+  --clock-numbers: #1e40af;
+  --hour-hand: #ef4444;
+  --minute-hand: #3b82f6;
+  --tick-major: #64748b;
+  --tick-minor: #cbd5e1;
+  --clock-center: #1e293b;
+
+  /* Interactive elements */
+  --button-primary: #8b5cf6;
+  --button-hover: #7c3aed;
+  --button-selected: #6d28d9;
+  --button-text: #ffffff;
+
+  /* Feedback colors */
+  --correct-color: #22c55e;
+  --correct-glow: rgba(34, 197, 94, 0.4);
+  --incorrect-color: #f97316;
+  --incorrect-glow: rgba(249, 115, 22, 0.3);
+
+  /* Mode selector */
+  --mode-bg: #fef3c7;
+  --mode-border: #fbbf24;
+  --mode-text: #92400e;
+
+  /* Text */
+  --text-primary: #1e293b;
+  --text-secondary: #475569;
+  --text-light: #94a3b8;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+  color: var(--text-primary);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+/* Prevent text selection during interactions */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Touch-friendly tap highlight removal */
+button, a, [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent pull-to-refresh on mobile */
+body {
+  overscroll-behavior-y: contain;
+}
