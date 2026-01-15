@@ -183,8 +183,6 @@ function App() {
 
       <FeedbackOverlay
         state={feedbackState}
-        correctAnswer={feedbackState === 'incorrect' ? targetTime : null}
-        mode={mode}
         onDismiss={handleFeedbackDismiss}
       />
     </div>

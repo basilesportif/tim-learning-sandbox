@@ -3,8 +3,6 @@ import './FeedbackOverlay.css';
 
 const FeedbackOverlay = ({
   state, // 'correct' | 'incorrect' | null
-  correctAnswer,
-  mode, // 'read' | 'set' | 'hour-only' | 'minute-only'
   onDismiss,
 }) => {
   // Auto-dismiss after delay
@@ -20,18 +18,6 @@ const FeedbackOverlay = ({
   if (!state) return null;
 
   const isCorrect = state === 'correct';
-
-  // Format the correct answer based on mode
-  const formatAnswer = () => {
-    if (!correctAnswer) return '';
-    if (mode === 'hour-only') {
-      return correctAnswer.hour.toString();
-    }
-    if (mode === 'minute-only') {
-      return correctAnswer.minute.toString().padStart(2, '0');
-    }
-    return `${correctAnswer.hour}:${correctAnswer.minute.toString().padStart(2, '0')}`;
-  };
 
   return (
     <div className={`feedback-overlay ${state}`} onClick={onDismiss}>
@@ -50,11 +36,6 @@ const FeedbackOverlay = ({
         <h3 className="feedback-text">
           {isCorrect ? 'Great job!' : 'Try again!'}
         </h3>
-        {!isCorrect && correctAnswer && (
-          <p className="correct-answer">
-            The answer was {formatAnswer()}
-          </p>
-        )}
         <p className="feedback-hint">
           {isCorrect ? 'Keep it up!' : 'Tap to continue'}
         </p>
