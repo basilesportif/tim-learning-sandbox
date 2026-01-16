@@ -2,6 +2,11 @@
 
 Simple educational websites for kids - each app teaches something new.
 
+## Apps
+
+- **clocks** - Learn to read analog clocks with interactive quizzes
+- **soccer-spacing** - Practice soccer field spacing and positioning
+
 ## Structure
 
 ```
@@ -47,3 +52,7 @@ Apps are deployed to `tim-apps` server and served via Caddy at `learning.galebac
 2. Use the Vite + React template
 3. Store any persistent data in `data/*.json`
 4. Deploy with `./scripts/deploy.sh <app-name>`
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
