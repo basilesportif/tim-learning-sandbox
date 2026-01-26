@@ -1,0 +1,191 @@
+.control-bar {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 16px;
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.1);
+}
+
+.control-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 100px;
+  min-height: 52px;
+  padding: 12px 20px;
+  font-size: 1.1rem;
+  font-weight: 700;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  touch-action: manipulation;
+}
+
+.control-button:active:not(.disabled) {
+  transform: scale(0.96);
+}
+
+.control-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+}
+
+.control-label {
+  white-space: nowrap;
+}
+
+/* Hint button - warm yellow */
+.hint-button {
+  background: linear-gradient(135deg, #faf089 0%, #ecc94b 100%);
+  color: #744210;
+  box-shadow: 0 4px 8px rgba(236, 201, 75, 0.4);
+}
+
+.hint-button:hover:not(.disabled) {
+  background: linear-gradient(135deg, #ecc94b 0%, #d69e2e 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(236, 201, 75, 0.5);
+}
+
+/* Undo button - cool blue */
+.undo-button {
+  background: linear-gradient(135deg, #90cdf4 0%, #4299e1 100%);
+  color: white;
+  box-shadow: 0 4px 8px rgba(66, 153, 225, 0.4);
+}
+
+.undo-button:hover:not(.disabled) {
+  background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(66, 153, 225, 0.5);
+}
+
+/* Check button - sporty green */
+.check-button {
+  background: linear-gradient(135deg, #68d391 0%, #48bb78 100%);
+  color: white;
+  box-shadow: 0 4px 8px rgba(72, 187, 120, 0.4);
+}
+
+.check-button:hover:not(.disabled) {
+  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(72, 187, 120, 0.5);
+}
+
+.check-button .control-icon {
+  font-size: 1.5rem;
+  font-weight: 900;
+}
+
+/* Disabled state */
+.control-button.disabled {
+  background: #e2e8f0;
+  color: #a0aec0;
+  box-shadow: none;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.control-button.disabled:hover {
+  transform: none;
+}
+
+/* Mobile - smaller buttons */
+@media (max-width: 480px) {
+  .control-bar {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .control-button {
+    min-width: 80px;
+    min-height: 48px;
+    padding: 10px 14px;
+    font-size: 0.95rem;
+    gap: 6px;
+    border-radius: 10px;
+  }
+
+  .control-icon {
+    font-size: 1.1rem;
+  }
+
+  .check-button .control-icon {
+    font-size: 1.3rem;
+  }
+}
+
+/* Tablet - larger touch targets */
+@media (min-width: 700px) {
+  .control-bar {
+    gap: 16px;
+    padding: 16px 24px;
+  }
+
+  .control-button {
+    min-width: 130px;
+    min-height: 60px;
+    padding: 16px 28px;
+    font-size: 1.2rem;
+    gap: 10px;
+    border-radius: 14px;
+  }
+
+  .control-icon {
+    font-size: 1.5rem;
+  }
+
+  .check-button .control-icon {
+    font-size: 1.7rem;
+  }
+}
+
+/* Large screens */
+@media (min-width: 1000px) {
+  .control-button {
+    min-width: 150px;
+    min-height: 64px;
+    padding: 18px 32px;
+    font-size: 1.3rem;
+  }
+
+  .control-icon {
+    font-size: 1.6rem;
+  }
+
+  .check-button .control-icon {
+    font-size: 1.8rem;
+  }
+}
+
+/* Landscape phone - compact */
+@media (orientation: landscape) and (max-height: 500px) {
+  .control-bar {
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 12px;
+  }
+
+  .control-button {
+    min-width: 90px;
+    min-height: 44px;
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    gap: 6px;
+    border-radius: 10px;
+  }
+
+  .control-icon {
+    font-size: 1rem;
+  }
+
+  .check-button .control-icon {
+    font-size: 1.2rem;
+  }
+}

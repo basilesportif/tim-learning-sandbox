@@ -1,0 +1,307 @@
+.play-area {
+  flex: 1;
+  display: flex;
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+
+  /* Wood gym floor texture using gradients */
+  background:
+    /* Wood grain lines */
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 48px,
+      rgba(139, 90, 43, 0.1) 48px,
+      rgba(139, 90, 43, 0.1) 50px
+    ),
+    /* Main wood color with variation */
+    linear-gradient(
+      180deg,
+      #c9a66b 0%,
+      #b8956a 20%,
+      #c9a66b 40%,
+      #b08a5b 60%,
+      #c9a66b 80%,
+      #b8956a 100%
+    );
+  box-shadow:
+    inset 0 0 40px rgba(0, 0, 0, 0.15),
+    0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+/* Balls area - left side */
+.balls-zone {
+  flex: 1;
+  position: relative;
+  min-height: 200px;
+  padding: 20px;
+}
+
+/* Containers area - right side */
+.containers-zone {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 20px;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.08);
+  border-left: 3px dashed rgba(139, 69, 19, 0.3);
+  min-width: 140px;
+}
+
+/* Ball styling */
+.ball {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  cursor: grab;
+  box-shadow:
+    0 3px 8px rgba(0, 0, 0, 0.3),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.2),
+    inset 0 4px 8px rgba(255, 255, 255, 0.3);
+  transform: translate(-50%, -50%);
+  transition: box-shadow 0.15s ease;
+  z-index: 10;
+}
+
+.ball:active {
+  cursor: grabbing;
+}
+
+.ball:hover {
+  box-shadow:
+    0 5px 12px rgba(0, 0, 0, 0.4),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.2),
+    inset 0 4px 8px rgba(255, 255, 255, 0.3);
+}
+
+.ball.dragging {
+  position: fixed;
+  cursor: grabbing;
+  transform: translate(-50%, -50%) scale(1.15);
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.4),
+    inset 0 -4px 8px rgba(0, 0, 0, 0.2),
+    inset 0 4px 8px rgba(255, 255, 255, 0.3);
+  pointer-events: none;
+}
+
+.ball-pattern {
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Container styling */
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.2);
+  transition: all 0.2s ease;
+  min-height: 120px;
+}
+
+.container.highlighted {
+  background: rgba(76, 175, 80, 0.25);
+  box-shadow: 0 0 15px rgba(76, 175, 80, 0.4);
+  transform: scale(1.03);
+}
+
+.container.full {
+  opacity: 0.7;
+}
+
+.container-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #4a3520;
+  text-align: center;
+  margin-bottom: 6px;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.5);
+}
+
+/* Bag specific */
+.bag-svg {
+  width: 80px;
+  height: 100px;
+}
+
+/* Cart specific */
+.cart-svg {
+  width: 100px;
+  height: 70px;
+}
+
+/* Mini balls inside containers */
+.container-balls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: center;
+  margin-top: 6px;
+  max-width: 80px;
+}
+
+.cart-balls {
+  max-width: 100px;
+}
+
+.mini-ball {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.3),
+    inset 0 -1px 2px rgba(0, 0, 0, 0.2);
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .play-area {
+    flex-direction: column;
+    border-radius: 12px;
+  }
+
+  .balls-zone {
+    min-height: 150px;
+    padding: 15px;
+  }
+
+  .containers-zone {
+    flex-direction: row;
+    justify-content: center;
+    gap: 15px;
+    padding: 15px;
+    border-left: none;
+    border-top: 3px dashed rgba(139, 69, 19, 0.3);
+    min-width: auto;
+  }
+
+  .container {
+    min-height: 100px;
+    padding: 8px;
+  }
+
+  .bag-svg {
+    width: 60px;
+    height: 75px;
+  }
+
+  .cart-svg {
+    width: 80px;
+    height: 55px;
+  }
+
+  .ball {
+    width: 36px;
+    height: 36px;
+  }
+
+  .container-label {
+    font-size: 0.65rem;
+  }
+}
+
+/* Phone landscape */
+@media (orientation: landscape) and (max-height: 500px) {
+  .containers-zone {
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+    min-width: 110px;
+  }
+
+  .container {
+    min-height: 90px;
+    padding: 6px;
+  }
+
+  .bag-svg {
+    width: 55px;
+    height: 70px;
+  }
+
+  .cart-svg {
+    width: 75px;
+    height: 50px;
+  }
+
+  .ball {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* Tablets */
+@media (min-width: 700px) and (min-height: 550px) {
+  .containers-zone {
+    gap: 25px;
+    padding: 25px;
+    min-width: 160px;
+  }
+
+  .container {
+    min-height: 140px;
+    padding: 12px;
+  }
+
+  .bag-svg {
+    width: 90px;
+    height: 110px;
+  }
+
+  .cart-svg {
+    width: 110px;
+    height: 80px;
+  }
+
+  .ball {
+    width: 48px;
+    height: 48px;
+  }
+
+  .mini-ball {
+    width: 16px;
+    height: 16px;
+  }
+
+  .container-label {
+    font-size: 0.85rem;
+  }
+}
+
+/* Large screens */
+@media (min-width: 1000px) {
+  .containers-zone {
+    gap: 30px;
+    padding: 30px;
+    min-width: 180px;
+  }
+
+  .container {
+    min-height: 160px;
+  }
+
+  .bag-svg {
+    width: 100px;
+    height: 125px;
+  }
+
+  .cart-svg {
+    width: 130px;
+    height: 90px;
+  }
+
+  .ball {
+    width: 52px;
+    height: 52px;
+  }
+}

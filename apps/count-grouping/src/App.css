@@ -1,0 +1,307 @@
+/* App layout - full viewport with grid structure */
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: var(--space-md);
+  box-sizing: border-box;
+  overflow: hidden;
+  background:
+    /* Subtle dotted pattern overlay */
+    radial-gradient(circle at 20% 80%, rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+    radial-gradient(circle at 80% 20%, rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+    radial-gradient(circle at 50% 50%, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    /* Main gradient - sky to grass */
+    linear-gradient(
+      180deg,
+      var(--bg-sky) 0%,
+      var(--bg-sky-light) 35%,
+      var(--bg-grass-light) 65%,
+      var(--bg-grass) 100%
+    );
+  background-size:
+    100px 100px,
+    80px 80px,
+    60px 60px,
+    100% 100%;
+}
+
+/* Header section */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-sm);
+}
+
+.header-left {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  flex: 1;
+  min-width: 200px;
+}
+
+.header-right {
+  flex-shrink: 0;
+}
+
+/* Free play prompt styling */
+.free-play-prompt {
+  background: var(--white);
+  padding: var(--space-md);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-medium);
+}
+
+.free-play-text {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* Main play area */
+.app-main {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-sm) 0;
+}
+
+/* Footer section */
+.app-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* ==========================================
+   Responsive Adjustments
+   ========================================== */
+
+/* Mobile phones - portrait */
+@media (max-width: 480px) {
+  .app {
+    padding: var(--space-sm);
+  }
+
+  .app-header {
+    flex-direction: column;
+    gap: var(--space-xs);
+  }
+
+  .header-left {
+    width: 100%;
+    gap: var(--space-xs);
+  }
+
+  .header-right {
+    width: 100%;
+  }
+
+  .free-play-prompt {
+    padding: var(--space-sm);
+  }
+
+  .free-play-text {
+    font-size: var(--font-size-md);
+  }
+
+  .app-footer {
+    gap: var(--space-xs);
+  }
+}
+
+/* Phone landscape */
+@media (orientation: landscape) and (max-height: 500px) {
+  .app {
+    padding: var(--space-xs) var(--space-sm);
+    grid-template-rows: auto 1fr auto;
+  }
+
+  .app-header {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xs);
+  }
+
+  .header-left {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-sm);
+    flex: 1;
+  }
+
+  .header-right {
+    flex-shrink: 0;
+  }
+
+  .app-main {
+    padding: var(--space-xs) 0;
+  }
+
+  .app-footer {
+    flex-direction: row;
+    justify-content: center;
+    gap: var(--space-md);
+  }
+
+  .free-play-prompt {
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .free-play-text {
+    font-size: var(--font-size-sm);
+  }
+}
+
+/* Tablets */
+@media (min-width: 700px) and (min-height: 550px) {
+  .app {
+    padding: var(--space-lg);
+  }
+
+  .app-header {
+    gap: var(--space-lg);
+    margin-bottom: var(--space-md);
+  }
+
+  .header-left {
+    gap: var(--space-md);
+  }
+
+  .free-play-prompt {
+    padding: var(--space-lg);
+  }
+
+  .free-play-text {
+    font-size: var(--font-size-xl);
+  }
+
+  .app-footer {
+    gap: var(--space-md);
+  }
+}
+
+/* Large tablets / small laptops */
+@media (min-width: 1000px) {
+  .app {
+    padding: var(--space-xl);
+  }
+
+  .app-header {
+    gap: var(--space-xl);
+  }
+
+  .free-play-text {
+    font-size: var(--font-size-2xl);
+  }
+}
+
+/* ==========================================
+   Animation Classes
+   ========================================== */
+
+/* Shake animation for rejected drops */
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  20%, 60% {
+    transform: translateX(-5px);
+  }
+  40%, 80% {
+    transform: translateX(5px);
+  }
+}
+
+.shake {
+  animation: shake 0.4s ease-out;
+}
+
+/* Bounce animation for successful drops */
+@keyframes bounce {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+.bounce {
+  animation: bounce 0.3s ease-out;
+}
+
+/* Fly-to-shelf animation */
+@keyframes flyToShelf {
+  0% {
+    transform: translate(0, 0) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(var(--fly-x, 100px), var(--fly-y, -100px)) scale(0.5);
+    opacity: 0;
+  }
+}
+
+.fly-to-shelf {
+  animation: flyToShelf 0.4s ease-in forwards;
+}
+
+/* Fade in animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Slide up animation */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.slide-up {
+  animation: slideUp 0.3s ease-out;
+}
+
+/* Pop animation */
+@keyframes pop {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.pop {
+  animation: pop 0.3s ease-out;
+}

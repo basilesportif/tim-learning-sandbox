@@ -5,6 +5,7 @@ Simple educational websites for kids - each app teaches something new.
 ## Apps
 
 - **clocks** - Learn to read analog clocks with interactive quizzes
+- **count-grouping** - Bundle soccer balls and basketballs into groups of 5 (bags) and 10 (carts) - learn counting by 5s and 10s
 - **soccer-spacing** - Practice soccer field spacing and positioning
 
 ## Structure

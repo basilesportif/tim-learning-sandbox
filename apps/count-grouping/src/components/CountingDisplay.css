@@ -1,0 +1,324 @@
+.counting-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, #ffffff 0%, #f7fafc 100%);
+  border-radius: 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  border: 2px solid #e2e8f0;
+  flex-wrap: wrap;
+}
+
+.counting-display-hidden {
+  background: linear-gradient(135deg, #edf2f7 0%, #e2e8f0 100%);
+  min-height: 60px;
+}
+
+.placeholder-text {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #718096;
+  font-style: italic;
+}
+
+.count-breakdown {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.count-part {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.count-operator {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #718096;
+  margin: 0 4px;
+}
+
+.count-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #edf2f7;
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+
+.count-icon {
+  font-size: 1.5rem;
+}
+
+.count-multiplier {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.count-times {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #718096;
+}
+
+.count-number {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #2d3748;
+}
+
+.count-value {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #4a5568;
+  margin-left: 2px;
+}
+
+.count-total {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #68d391 0%, #48bb78 100%);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(72, 187, 120, 0.3);
+}
+
+.total-equals {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: white;
+  opacity: 0.9;
+}
+
+.total-number {
+  font-size: 1.8rem;
+  font-weight: 900;
+  color: white;
+}
+
+.total-label {
+  font-size: 1rem;
+  font-weight: 600;
+  color: white;
+  opacity: 0.9;
+  text-transform: lowercase;
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .counting-display {
+    gap: 10px;
+    padding: 10px 14px;
+    flex-direction: column;
+  }
+
+  .counting-display-hidden {
+    flex-direction: row;
+    min-height: 50px;
+  }
+
+  .placeholder-text {
+    font-size: 0.95rem;
+  }
+
+  .count-breakdown {
+    gap: 6px;
+  }
+
+  .count-operator {
+    font-size: 1.2rem;
+    margin: 0 2px;
+  }
+
+  .count-item {
+    padding: 4px 8px;
+  }
+
+  .count-icon {
+    font-size: 1.2rem;
+  }
+
+  .count-number {
+    font-size: 1.1rem;
+  }
+
+  .count-value {
+    font-size: 0.85rem;
+  }
+
+  .count-times {
+    font-size: 0.8rem;
+  }
+
+  .count-total {
+    padding: 6px 12px;
+    gap: 4px;
+  }
+
+  .total-equals {
+    font-size: 1.2rem;
+  }
+
+  .total-number {
+    font-size: 1.5rem;
+  }
+
+  .total-label {
+    font-size: 0.85rem;
+  }
+}
+
+/* Tablet */
+@media (min-width: 700px) {
+  .counting-display {
+    gap: 20px;
+    padding: 18px 28px;
+    border-radius: 16px;
+  }
+
+  .counting-display-hidden {
+    min-height: 70px;
+  }
+
+  .placeholder-text {
+    font-size: 1.2rem;
+  }
+
+  .count-operator {
+    font-size: 1.6rem;
+    margin: 0 6px;
+  }
+
+  .count-item {
+    padding: 8px 14px;
+    border-radius: 12px;
+  }
+
+  .count-icon {
+    font-size: 1.8rem;
+  }
+
+  .count-number {
+    font-size: 1.5rem;
+  }
+
+  .count-value {
+    font-size: 1.1rem;
+  }
+
+  .count-total {
+    padding: 10px 20px;
+    gap: 8px;
+    border-radius: 14px;
+  }
+
+  .total-equals {
+    font-size: 1.6rem;
+  }
+
+  .total-number {
+    font-size: 2.2rem;
+  }
+
+  .total-label {
+    font-size: 1.1rem;
+  }
+}
+
+/* Large screens */
+@media (min-width: 1000px) {
+  .counting-display {
+    gap: 24px;
+    padding: 20px 36px;
+  }
+
+  .count-icon {
+    font-size: 2rem;
+  }
+
+  .count-number {
+    font-size: 1.7rem;
+  }
+
+  .count-value {
+    font-size: 1.2rem;
+  }
+
+  .total-number {
+    font-size: 2.5rem;
+  }
+
+  .total-label {
+    font-size: 1.2rem;
+  }
+}
+
+/* Landscape phone */
+@media (orientation: landscape) and (max-height: 500px) {
+  .counting-display {
+    gap: 12px;
+    padding: 8px 14px;
+    border-radius: 10px;
+  }
+
+  .counting-display-hidden {
+    min-height: 40px;
+  }
+
+  .placeholder-text {
+    font-size: 0.9rem;
+  }
+
+  .count-operator {
+    font-size: 1.1rem;
+    margin: 0 3px;
+  }
+
+  .count-item {
+    padding: 4px 8px;
+    border-radius: 8px;
+  }
+
+  .count-icon {
+    font-size: 1.1rem;
+  }
+
+  .count-number {
+    font-size: 1rem;
+  }
+
+  .count-value {
+    font-size: 0.8rem;
+  }
+
+  .count-times {
+    font-size: 0.75rem;
+  }
+
+  .count-total {
+    padding: 5px 10px;
+    gap: 4px;
+    border-radius: 8px;
+  }
+
+  .total-equals {
+    font-size: 1.1rem;
+  }
+
+  .total-number {
+    font-size: 1.3rem;
+  }
+
+  .total-label {
+    font-size: 0.8rem;
+  }
+}

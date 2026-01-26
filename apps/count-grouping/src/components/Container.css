@@ -1,0 +1,432 @@
+/* Container base styles */
+.container {
+  position: relative;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* ===== BAG STYLES ===== */
+.container-bag {
+  width: 90px;
+  height: 120px;
+}
+
+.bag-handle {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40px;
+  height: 18px;
+  border: 6px solid #654321;
+  border-bottom: none;
+  border-radius: 20px 20px 0 0;
+  background: transparent;
+}
+
+.bag-opening {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 70px;
+  height: 12px;
+  background: linear-gradient(to bottom, #5a3a1a, #8b4513);
+  border-radius: 4px 4px 0 0;
+  border: 2px solid #4a2a0a;
+  border-bottom: none;
+}
+
+.bag-body {
+  position: absolute;
+  top: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 80px;
+  height: 90px;
+  background: linear-gradient(135deg, #a0522d 0%, #8b4513 50%, #654321 100%);
+  border-radius: 0 0 20px 20px;
+  border: 3px solid #4a2a0a;
+  border-top: none;
+  overflow: hidden;
+  box-shadow: inset 0 -10px 20px rgba(0, 0, 0, 0.2);
+}
+
+.bag-mesh {
+  position: absolute;
+  inset: 0;
+  background:
+    repeating-linear-gradient(
+      45deg,
+      transparent,
+      transparent 4px,
+      rgba(0, 0, 0, 0.15) 4px,
+      rgba(0, 0, 0, 0.15) 5px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      transparent,
+      transparent 4px,
+      rgba(0, 0, 0, 0.15) 4px,
+      rgba(0, 0, 0, 0.15) 5px
+    );
+  pointer-events: none;
+}
+
+.bag-slots-container,
+.bag-balls-container {
+  position: absolute;
+  inset: 0;
+}
+
+/* ===== CART STYLES ===== */
+.container-cart {
+  width: 140px;
+  height: 100px;
+}
+
+.cart-frame {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 130px;
+  height: 80px;
+}
+
+.cart-handle {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100px;
+  height: 8px;
+  background: linear-gradient(to bottom, #666, #4a4a4a);
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.cart-grid {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 120px;
+  height: 60px;
+  background: linear-gradient(to bottom, #f5f5f5, #e0e0e0);
+  border: 3px solid #4a4a4a;
+  border-radius: 6px;
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.1),
+    0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.cart-bottom {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 110px;
+  height: 6px;
+  background: linear-gradient(to bottom, #4a4a4a, #333);
+  border-radius: 3px;
+}
+
+.cart-wheels {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.cart-wheel {
+  width: 16px;
+  height: 16px;
+  background: radial-gradient(circle at 30% 30%, #444, #1a1a1a);
+  border-radius: 50%;
+  border: 2px solid #333;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* ===== SLOT STYLES ===== */
+.container-slot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.bag-slot {
+  width: 32px;
+  height: 32px;
+  border: 2px dashed rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.cart-slot {
+  width: 24px;
+  height: 24px;
+  border: 2px dashed rgba(100, 100, 100, 0.3);
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.container-slot.filled {
+  opacity: 0;
+}
+
+/* ===== BALL WRAPPER IN CONTAINER ===== */
+.container-ball-wrapper {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+}
+
+.container-ball-wrapper .ball {
+  position: relative;
+  left: auto;
+  top: auto;
+  transform: none;
+  width: 36px;
+  height: 36px;
+  cursor: default;
+  pointer-events: none;
+}
+
+.container-ball-wrapper.in-cart .ball {
+  width: 28px;
+  height: 28px;
+}
+
+.container-ball-wrapper .ball .ball-svg {
+  animation: none;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.25));
+}
+
+/* ===== COUNT BADGE ===== */
+.container-count {
+  position: absolute;
+  bottom: -24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 2px 8px;
+  background: rgba(0, 0, 0, 0.7);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+/* ===== STATE STYLES ===== */
+
+/* Highlighted (drag hover) */
+.container.highlighted {
+  transform: scale(1.05);
+}
+
+.container.highlighted.container-bag .bag-body {
+  box-shadow:
+    inset 0 -10px 20px rgba(0, 0, 0, 0.2),
+    0 0 20px rgba(100, 200, 255, 0.6),
+    0 0 40px rgba(100, 200, 255, 0.3);
+}
+
+.container.highlighted.container-cart .cart-grid {
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.1),
+    0 0 20px rgba(100, 200, 255, 0.6),
+    0 0 40px rgba(100, 200, 255, 0.3);
+}
+
+/* Locked state */
+.container.locked {
+  filter: grayscale(0.6) brightness(0.8);
+  pointer-events: none;
+}
+
+.container.locked .container-count {
+  background: rgba(100, 100, 100, 0.7);
+}
+
+/* Complete state */
+.container.complete {
+  animation: complete-pulse 0.6s ease-out;
+}
+
+@keyframes complete-pulse {
+  0% {
+    transform: scale(1);
+  }
+  30% {
+    transform: scale(1.1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  70% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.container.complete.container-bag .bag-body {
+  box-shadow:
+    inset 0 -10px 20px rgba(0, 0, 0, 0.2),
+    0 0 15px rgba(76, 175, 80, 0.7),
+    0 0 30px rgba(76, 175, 80, 0.4);
+}
+
+.container.complete.container-cart .cart-grid {
+  box-shadow:
+    inset 0 2px 4px rgba(0, 0, 0, 0.1),
+    0 0 15px rgba(76, 175, 80, 0.7),
+    0 0 30px rgba(76, 175, 80, 0.4);
+}
+
+.container.complete .container-count {
+  background: rgba(76, 175, 80, 0.9);
+}
+
+/* ===== RESPONSIVE STYLES ===== */
+
+/* Tablets */
+@media (min-width: 700px) {
+  .container-bag {
+    width: 100px;
+    height: 135px;
+  }
+
+  .bag-handle {
+    width: 45px;
+    height: 20px;
+  }
+
+  .bag-opening {
+    width: 78px;
+    height: 14px;
+  }
+
+  .bag-body {
+    width: 90px;
+    height: 100px;
+  }
+
+  .bag-slot {
+    width: 36px;
+    height: 36px;
+  }
+
+  .container-ball-wrapper .ball {
+    width: 40px;
+    height: 40px;
+  }
+
+  .container-cart {
+    width: 160px;
+    height: 110px;
+  }
+
+  .cart-grid {
+    width: 140px;
+    height: 70px;
+  }
+
+  .cart-slot {
+    width: 28px;
+    height: 28px;
+  }
+
+  .container-ball-wrapper.in-cart .ball {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* Phone portrait */
+@media (max-width: 480px) {
+  .container-bag {
+    width: 75px;
+    height: 100px;
+  }
+
+  .bag-handle {
+    width: 32px;
+    height: 14px;
+    border-width: 5px;
+  }
+
+  .bag-opening {
+    top: 12px;
+    width: 58px;
+    height: 10px;
+  }
+
+  .bag-body {
+    top: 20px;
+    width: 66px;
+    height: 76px;
+  }
+
+  .bag-slot {
+    width: 26px;
+    height: 26px;
+  }
+
+  .container-ball-wrapper .ball {
+    width: 30px;
+    height: 30px;
+  }
+
+  .container-cart {
+    width: 115px;
+    height: 85px;
+  }
+
+  .cart-handle {
+    width: 80px;
+    height: 6px;
+  }
+
+  .cart-grid {
+    width: 100px;
+    height: 50px;
+  }
+
+  .cart-bottom {
+    width: 90px;
+    height: 5px;
+  }
+
+  .cart-slot {
+    width: 18px;
+    height: 18px;
+  }
+
+  .container-ball-wrapper.in-cart .ball {
+    width: 22px;
+    height: 22px;
+  }
+
+  .cart-wheels {
+    width: 80px;
+    bottom: -6px;
+  }
+
+  .cart-wheel {
+    width: 12px;
+    height: 12px;
+  }
+
+  .container-count {
+    font-size: 10px;
+    bottom: -20px;
+  }
+}

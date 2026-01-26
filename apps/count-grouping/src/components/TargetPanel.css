@@ -1,0 +1,261 @@
+.target-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.target-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.target-level {
+  flex-shrink: 0;
+}
+
+.level-badge {
+  display: inline-block;
+  padding: 8px 16px;
+  font-size: 1rem;
+  font-weight: 700;
+  color: white;
+  background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+  border-radius: 20px;
+  box-shadow: 0 2px 8px rgba(72, 187, 120, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.target-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  max-width: 200px;
+}
+
+.progress-text {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #4a5568;
+  text-align: right;
+}
+
+.progress-bar {
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #48bb78 0%, #38a169 100%);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.target-content {
+  position: relative;
+  background: #fffef7;
+  border-radius: 8px;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.15),
+    inset 0 0 0 2px #d69e2e;
+  overflow: visible;
+}
+
+.clipboard-top {
+  position: relative;
+  height: 20px;
+  background: linear-gradient(180deg, #8b6914 0%, #a57d1a 100%);
+  border-radius: 8px 8px 0 0;
+  display: flex;
+  justify-content: center;
+}
+
+.clipboard-clip {
+  position: absolute;
+  top: -8px;
+  width: 60px;
+  height: 24px;
+  background: linear-gradient(180deg, #718096 0%, #4a5568 100%);
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.clipboard-clip::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 30px;
+  height: 12px;
+  background: #2d3748;
+  border-radius: 2px;
+}
+
+.prompt-area {
+  padding: 20px 24px;
+  text-align: center;
+}
+
+.prompt-text {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #2d3748;
+  line-height: 1.4;
+  margin: 0 0 8px 0;
+}
+
+.constraints-text {
+  font-size: 1rem;
+  font-weight: 500;
+  color: #718096;
+  font-style: italic;
+  margin: 0;
+}
+
+/* Mobile */
+@media (max-width: 480px) {
+  .target-panel {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .target-header {
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .target-progress {
+    max-width: none;
+  }
+
+  .progress-text {
+    text-align: center;
+  }
+
+  .level-badge {
+    display: block;
+    text-align: center;
+    padding: 6px 12px;
+    font-size: 0.9rem;
+  }
+
+  .prompt-area {
+    padding: 16px 18px;
+  }
+
+  .prompt-text {
+    font-size: 1.2rem;
+  }
+
+  .constraints-text {
+    font-size: 0.9rem;
+  }
+}
+
+/* Tablet */
+@media (min-width: 700px) {
+  .target-panel {
+    padding: 20px;
+    gap: 16px;
+    max-width: 600px;
+  }
+
+  .level-badge {
+    padding: 10px 20px;
+    font-size: 1.1rem;
+  }
+
+  .prompt-area {
+    padding: 28px 32px;
+  }
+
+  .prompt-text {
+    font-size: 1.6rem;
+  }
+
+  .constraints-text {
+    font-size: 1.1rem;
+  }
+
+  .clipboard-clip {
+    width: 80px;
+    height: 28px;
+  }
+
+  .clipboard-top {
+    height: 24px;
+  }
+}
+
+/* Large screens */
+@media (min-width: 1000px) {
+  .target-panel {
+    max-width: 700px;
+  }
+
+  .prompt-text {
+    font-size: 1.8rem;
+  }
+
+  .constraints-text {
+    font-size: 1.2rem;
+  }
+}
+
+/* Landscape phone */
+@media (orientation: landscape) and (max-height: 500px) {
+  .target-panel {
+    padding: 8px 12px;
+    gap: 8px;
+    max-width: 400px;
+  }
+
+  .target-header {
+    gap: 12px;
+  }
+
+  .level-badge {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+  }
+
+  .prompt-area {
+    padding: 12px 16px;
+  }
+
+  .prompt-text {
+    font-size: 1.1rem;
+    margin-bottom: 4px;
+  }
+
+  .constraints-text {
+    font-size: 0.85rem;
+  }
+
+  .clipboard-top {
+    height: 16px;
+  }
+
+  .clipboard-clip {
+    width: 50px;
+    height: 20px;
+    top: -6px;
+  }
+
+  .clipboard-clip::after {
+    top: 4px;
+    width: 24px;
+    height: 10px;
+  }
+}

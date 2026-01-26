@@ -1,0 +1,149 @@
+/* Count Grouping - Sporty Theme with Warm Colors */
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Background colors - sky and grass for sporty feel */
+  --bg-sky: #87CEEB;
+  --bg-sky-light: #B0E0E6;
+  --bg-grass: #7CB342;
+  --bg-grass-light: #9CCC65;
+  --bg-field: #8BC34A;
+
+  /* Accent colors - warm oranges, yellows, and blue */
+  --accent-orange: #FF6B35;
+  --accent-orange-light: #FF8C5A;
+  --accent-orange-dark: #E55A2B;
+  --accent-yellow: #FFD23F;
+  --accent-yellow-light: #FFE066;
+  --accent-blue: #4A90D9;
+  --accent-blue-light: #6BA3E0;
+  --accent-red: #E53935;
+  --accent-green: #43A047;
+
+  /* Neutral colors */
+  --white: #FFFFFF;
+  --off-white: #FFF8F0;
+  --cream: #FFF5E6;
+  --brown-light: #8D6E63;
+  --brown-dark: #5D4037;
+
+  /* Text colors */
+  --text-primary: #2D3436;
+  --text-secondary: #636E72;
+  --text-light: #FFFFFF;
+  --text-on-orange: #FFFFFF;
+
+  /* Feedback colors */
+  --correct-color: #43A047;
+  --correct-glow: rgba(67, 160, 71, 0.4);
+  --incorrect-color: #FF6B35;
+  --incorrect-glow: rgba(255, 107, 53, 0.3);
+  --try-again-color: #FFB300;
+
+  /* Shadows and effects */
+  --shadow-soft: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-medium: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-strong: 0 6px 20px rgba(0, 0, 0, 0.2);
+
+  /* Border radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-round: 50%;
+
+  /* Spacing */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+
+  /* Typography */
+  --font-family: 'Fredoka', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.25rem;
+  --font-size-xl: 1.5rem;
+  --font-size-2xl: 2rem;
+  --font-size-3xl: 2.5rem;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: var(--font-family);
+  font-weight: 500;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(180deg, var(--bg-sky) 0%, var(--bg-sky-light) 40%, var(--bg-grass-light) 60%, var(--bg-grass) 100%);
+  color: var(--text-primary);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+/* Prevent text selection during drag interactions */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Touch-friendly tap highlight removal */
+button, a, [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent pull-to-refresh on mobile */
+body {
+  overscroll-behavior-y: contain;
+}
+
+/* Prevent rubber-banding on iOS during drag */
+.drag-active {
+  touch-action: none;
+}
+
+/* Base button styles */
+button {
+  font-family: var(--font-family);
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+
+button:active {
+  transform: scale(0.96);
+}
+
+/* Focus styles for accessibility */
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible {
+  outline: 3px solid var(--accent-orange);
+  outline-offset: 2px;
+}
