@@ -6,6 +6,7 @@ const TargetPanel = ({
   currentPrompt,
   totalPrompts,
   levelName,
+  onSkip,
 }) => {
   return (
     <div className="target-panel">
@@ -34,6 +35,11 @@ const TargetPanel = ({
           <p className="prompt-text">{promptText}</p>
           {constraints && (
             <p className="constraints-text">{constraints}</p>
+          )}
+          {onSkip && (
+            <button className="skip-button" onClick={onSkip}>
+              Skip
+            </button>
           )}
         </div>
       </div>

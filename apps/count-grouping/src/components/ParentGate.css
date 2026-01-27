@@ -1,0 +1,157 @@
+.parent-gate-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.parent-gate-modal {
+  background: white;
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 360px;
+  width: 90%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  text-align: center;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.parent-gate-title {
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: #4a5568;
+  margin: 0 0 16px 0;
+}
+
+.parent-gate-question {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #2d3748;
+  margin: 0 0 20px 0;
+}
+
+.parent-gate-input {
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 1.4rem;
+  font-weight: 600;
+  text-align: center;
+  border: 2px solid #e2e8f0;
+  border-radius: 12px;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box;
+}
+
+.parent-gate-input:focus {
+  border-color: #4299e1;
+  box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.2);
+}
+
+.parent-gate-input.error {
+  border-color: #e53e3e;
+  animation: shake 0.3s ease;
+}
+
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  20%, 60% {
+    transform: translateX(-6px);
+  }
+  40%, 80% {
+    transform: translateX(6px);
+  }
+}
+
+.parent-gate-error {
+  color: #e53e3e;
+  font-size: 0.95rem;
+  font-weight: 500;
+  margin: 12px 0 0 0;
+}
+
+.parent-gate-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.parent-gate-btn {
+  flex: 1;
+  padding: 12px 20px;
+  font-size: 1rem;
+  font-weight: 600;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.parent-gate-btn:active {
+  transform: scale(0.98);
+}
+
+.parent-gate-btn.cancel {
+  background: #e2e8f0;
+  color: #4a5568;
+}
+
+.parent-gate-btn.cancel:hover {
+  background: #cbd5e0;
+}
+
+.parent-gate-btn.confirm {
+  background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(66, 153, 225, 0.4);
+}
+
+.parent-gate-btn.confirm:hover {
+  box-shadow: 0 4px 12px rgba(66, 153, 225, 0.5);
+}
+
+/* Mobile adjustments */
+@media (max-width: 480px) {
+  .parent-gate-modal {
+    padding: 24px;
+  }
+
+  .parent-gate-question {
+    font-size: 1.4rem;
+  }
+
+  .parent-gate-input {
+    font-size: 1.2rem;
+    padding: 12px 14px;
+  }
+}

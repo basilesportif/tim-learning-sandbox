@@ -1,4 +1,4 @@
-import { useReducer, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useReducer, useCallback, useEffect, useRef, useMemo, useState } from 'react';
 
 // Components
 import ModeSelector from './components/ModeSelector';
@@ -9,6 +9,7 @@ import ControlBar from './components/ControlBar';
 import CountingDisplay from './components/CountingDisplay';
 import HintOverlay from './components/HintOverlay';
 import SuccessOverlay from './components/SuccessOverlay';
+import ParentGate from './components/ParentGate';
 
 // Utils and data
 import { LEVELS, getLevel, getPrompt, getTotalPrompts, getFlatPromptIndex } from './lib/levelData';
@@ -682,6 +683,7 @@ function gameReducer(state, action) {
 
 function App() {
   const [state, dispatch] = useReducer(gameReducer, null, createInitialState);
+  const [showSkipGate, setShowSkipGate] = useState(false);
   const unlockTimeoutRef = useRef(null);
 
   // Get current level and prompt
@@ -701,10 +703,34 @@ function App() {
   );
   const totalPrompts = useMemo(() => getTotalPrompts(), []);
 
-  // Initialize game on mount
+  // Initialize game on mount - restore progress if available
   useEffect(() => {
+    const saved = localStorage.getItem('countGrouping_progress');
+    if (saved) {
+      try {
+        const { levelIndex, promptIndex, mode } = JSON.parse(saved);
+        if (mode === 'challenge' && levelIndex !== undefined && promptIndex !== undefined) {
+          dispatch({ type: ActionTypes.INIT_LEVEL, payload: { levelIndex, promptIndex } });
+          return;
+        }
+      } catch (e) {
+        // Invalid saved data, start fresh
+      }
+    }
     dispatch({ type: ActionTypes.INIT_MODE, payload: { mode: 'challenge' } });
   }, []);
+
+  // Save progress to localStorage when level/prompt changes in challenge mode
+  useEffect(() => {
+    if (state.mode === 'challenge') {
+      localStorage.setItem('countGrouping_progress', JSON.stringify({
+        levelIndex: state.levelIndex,
+        promptIndex: state.promptIndex,
+        mode: state.mode,
+        timestamp: Date.now()
+      }));
+    }
+  }, [state.levelIndex, state.promptIndex, state.mode]);
 
   // Handle scripted container unlock (e.g., L4-15)
   useEffect(() => {
@@ -756,6 +782,10 @@ function App() {
   // ==========================================
 
   const handleModeChange = useCallback((mode) => {
+    // Clear saved progress when switching to free play
+    if (mode === 'free') {
+      localStorage.removeItem('countGrouping_progress');
+    }
     dispatch({ type: ActionTypes.INIT_MODE, payload: { mode } });
   }, []);
 
@@ -841,11 +871,34 @@ function App() {
   }, []);
 
   const handleNextPrompt = useCallback(() => {
+    // Check if this is the last prompt - if so, clear progress
+    const level = getLevel(state.levelIndex);
+    const isLastPromptInLevel = state.promptIndex + 1 >= (level?.prompts.length || 0);
+    const isLastLevel = state.levelIndex + 1 >= LEVELS.length;
+
+    if (isLastPromptInLevel && isLastLevel) {
+      // User completed all levels - clear saved progress
+      localStorage.removeItem('countGrouping_progress');
+    }
+
     dispatch({ type: ActionTypes.NEXT_PROMPT });
-  }, []);
+  }, [state.levelIndex, state.promptIndex]);
 
   const handleRetry = useCallback(() => {
     dispatch({ type: ActionTypes.DISMISS_SUCCESS });
+  }, []);
+
+  const handleSkipClick = useCallback(() => {
+    setShowSkipGate(true);
+  }, []);
+
+  const handleSkipSuccess = useCallback(() => {
+    setShowSkipGate(false);
+    dispatch({ type: ActionTypes.NEXT_PROMPT });
+  }, []);
+
+  const handleSkipCancel = useCallback(() => {
+    setShowSkipGate(false);
   }, []);
 
   // ==========================================
@@ -888,6 +941,7 @@ function App() {
               currentPrompt={flatPromptIndex}
               totalPrompts={totalPrompts}
               levelName={currentLevel.name}
+              onSkip={handleSkipClick}
             />
           )}
           {state.mode === 'free' && (
@@ -958,6 +1012,12 @@ function App() {
         onNext={handleNextPrompt}
         onRetry={handleRetry}
         visible={state.ui.lastCheck !== null}
+      />
+
+      <ParentGate
+        visible={showSkipGate}
+        onSuccess={handleSkipSuccess}
+        onCancel={handleSkipCancel}
       />
     </div>
   );
