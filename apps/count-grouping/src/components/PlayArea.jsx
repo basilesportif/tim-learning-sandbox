@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from 'react';
+import { useRef, useCallback } from 'react';
 import { COLORS, Z_INDEX, PLAY_AREA, BAG_CAPACITY, CART_CAPACITY } from '../lib/constants';
 import './PlayArea.css';
 
@@ -14,6 +14,7 @@ const PlayArea = ({
   const playAreaRef = useRef(null);
   const bagRef = useRef(null);
   const cartRef = useRef(null);
+  const activeBallRef = useRef(null);
 
   // Get loose balls (not in containers)
   const looseBalls = balls.filter((b) => b.status === 'loose');
@@ -49,61 +50,71 @@ const PlayArea = ({
     return null;
   }, []);
 
-  // Handle pointer move
+  // Handle pointer move - uses pointer events consistently
   const handlePointerMove = useCallback(
     (e) => {
       if (!dragState?.dragging) return;
       e.preventDefault();
-      const clientX = e.touches?.[0]?.clientX ?? e.clientX;
-      const clientY = e.touches?.[0]?.clientY ?? e.clientY;
-      onDragMove?.({ x: clientX, y: clientY });
+      // Pointer events give us clientX/clientY directly
+      onDragMove?.({ x: e.clientX, y: e.clientY });
     },
     [dragState, onDragMove]
   );
 
-  // Handle pointer up
+  // Handle pointer up - uses pointer events consistently
   const handlePointerUp = useCallback(
     (e) => {
       if (!dragState?.dragging) return;
       e.preventDefault();
-      const clientX = e.changedTouches?.[0]?.clientX ?? e.clientX;
-      const clientY = e.changedTouches?.[0]?.clientY ?? e.clientY;
-      const dropTarget = getDropTarget(clientX, clientY);
+
+      // Release pointer capture
+      if (activeBallRef.current) {
+        try {
+          activeBallRef.current.releasePointerCapture(e.pointerId);
+        } catch (err) {
+          // Pointer capture may already be released
+        }
+        activeBallRef.current = null;
+      }
+
+      const dropTarget = getDropTarget(e.clientX, e.clientY);
       onDrop?.(dropTarget);
       onDragEnd?.();
     },
     [dragState, getDropTarget, onDrop, onDragEnd]
   );
 
-  // Add global event listeners for drag
-  useEffect(() => {
-    if (!dragState?.dragging) return;
+  // Handle pointer cancel (e.g., system interruption)
+  const handlePointerCancel = useCallback(
+    (e) => {
+      if (!dragState?.dragging) return;
 
-    const handleMove = (e) => handlePointerMove(e);
-    const handleEnd = (e) => handlePointerUp(e);
+      if (activeBallRef.current) {
+        try {
+          activeBallRef.current.releasePointerCapture(e.pointerId);
+        } catch (err) {
+          // Pointer capture may already be released
+        }
+        activeBallRef.current = null;
+      }
 
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleEnd);
-    window.addEventListener('touchmove', handleMove, { passive: false });
-    window.addEventListener('touchend', handleEnd);
-    window.addEventListener('touchcancel', handleEnd);
+      onDragEnd?.();
+    },
+    [dragState, onDragEnd]
+  );
 
-    return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleEnd);
-      window.removeEventListener('touchmove', handleMove);
-      window.removeEventListener('touchend', handleEnd);
-      window.removeEventListener('touchcancel', handleEnd);
-    };
-  }, [dragState, handlePointerMove, handlePointerUp]);
-
-  // Handle drag start on a ball
-  const handleBallDragStart = useCallback(
-    (ball) => (e) => {
+  // Handle drag start on a ball - uses pointer events with capture
+  const handleBallPointerDown = useCallback(
+    (ball, e) => {
       e.preventDefault();
-      const clientX = e.touches?.[0]?.clientX ?? e.clientX;
-      const clientY = e.touches?.[0]?.clientY ?? e.clientY;
-      onDragStart?.(ball, { x: clientX, y: clientY });
+      e.stopPropagation();
+
+      // Set pointer capture on the target element for smooth tracking
+      const target = e.currentTarget;
+      target.setPointerCapture(e.pointerId);
+      activeBallRef.current = target;
+
+      onDragStart?.(ball, { x: e.clientX, y: e.clientY });
     },
     [onDragStart]
   );
@@ -122,8 +133,10 @@ const PlayArea = ({
           top: `${ball.y}%`,
           backgroundColor: ball.type === 'basketball' ? COLORS.basketball : COLORS.soccer,
         }}
-        onMouseDown={handleBallDragStart(ball)}
-        onTouchStart={handleBallDragStart(ball)}
+        onPointerDown={(e) => handleBallPointerDown(ball, e)}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerCancel}
       >
         {ball.type === 'soccer' && (
           <svg className="ball-pattern" viewBox="0 0 100 100">

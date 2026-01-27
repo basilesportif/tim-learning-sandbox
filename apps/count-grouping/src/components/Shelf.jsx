@@ -5,7 +5,6 @@ import './Shelf.css';
 const Shelf = ({
   bags = 0,
   carts = 0,
-  bundles = [],
   tradingEnabled = false,
   onCombine,
   onSkipCount,
@@ -161,25 +160,6 @@ const Shelf = ({
           </div>
         )}
 
-        {/* Individual bundles from array */}
-        {bundles.map((bundle, index) => (
-          <div key={bundle.id || index} className="bundle-group">
-            <div
-              className={`bundle-item ${pulsingBundle === index ? 'pulsing' : ''}`}
-              onClick={() => handleBundleTap(bundle, index)}
-            >
-              {bundle.type === 'bag'
-                ? renderBagIcon(`bundle-${index}`, pulsingBundle === index)
-                : renderCartIcon(`bundle-${index}`, pulsingBundle === index)
-              }
-            </div>
-            {pulsingBundle === index && (
-              <div className="skip-count-popup">
-                {bundle.type === 'bag' ? BAG_CAPACITY : CART_CAPACITY}
-              </div>
-            )}
-          </div>
-        ))}
       </div>
 
       {/* Combine button */}
