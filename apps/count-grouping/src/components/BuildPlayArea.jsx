@@ -41,6 +41,19 @@ const BuildPlayArea = ({
     return false;
   }, []);
 
+  // Use refs to store current drag state for event handlers to avoid stale closures
+  const dragStateRef = useRef(dragState);
+  useEffect(() => {
+    dragStateRef.current = dragState;
+  }, [dragState]);
+
+  const onDragToAnswerRef = useRef(onDragToAnswer);
+  const onDragFromAnswerRef = useRef(onDragFromAnswer);
+  useEffect(() => {
+    onDragToAnswerRef.current = onDragToAnswer;
+    onDragFromAnswerRef.current = onDragFromAnswer;
+  }, [onDragToAnswer, onDragFromAnswer]);
+
   // Global event handlers for dragging using Pointer Events API
   useEffect(() => {
     if (!dragState.dragging) return;
@@ -52,14 +65,15 @@ const BuildPlayArea = ({
 
     const handleEnd = (e) => {
       e.preventDefault();
+      const currentDragState = dragStateRef.current;
       const overAnswer = isOverAnswerZone(e.clientX, e.clientY);
 
-      if (dragState.source === 'resources' && overAnswer) {
+      if (currentDragState.source === 'resources' && overAnswer) {
         // Dragged from resources to answer zone
-        onDragToAnswer?.(dragState.item.id, dragState.itemType);
-      } else if (dragState.source === 'answer' && !overAnswer) {
+        onDragToAnswerRef.current?.(currentDragState.item.id, currentDragState.itemType);
+      } else if (currentDragState.source === 'answer' && !overAnswer) {
         // Dragged from answer zone out
-        onDragFromAnswer?.(dragState.item.id, dragState.itemType);
+        onDragFromAnswerRef.current?.(currentDragState.item.id, currentDragState.itemType);
       }
 
       setDragState({
@@ -80,14 +94,26 @@ const BuildPlayArea = ({
       window.removeEventListener('pointerup', handleEnd);
       window.removeEventListener('pointercancel', handleEnd);
     };
-  }, [dragState.dragging, dragState.source, dragState.itemType, dragState.item, onDragToAnswer, onDragFromAnswer, isOverAnswerZone]);
+  }, [dragState.dragging, isOverAnswerZone]);
 
   // Handle drag start on an item
   const handleItemPointerDown = useCallback(
     (type, item, source, e) => {
+      // Prevent default to avoid text selection and other browser behaviors
       e.preventDefault();
       e.stopPropagation();
-      e.target.setPointerCapture(e.pointerId);
+
+      // Set pointer capture on the current target element
+      // This ensures pointer events continue even if cursor leaves the element
+      if (e.currentTarget && e.currentTarget.setPointerCapture) {
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch (err) {
+          // Pointer capture may fail in some edge cases, continue anyway
+          console.warn('Pointer capture failed:', err);
+        }
+      }
+
       setDragState({
         dragging: true,
         itemType: type,

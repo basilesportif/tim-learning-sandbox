@@ -88,6 +88,30 @@
   white-space: nowrap;
 }
 
+/* Build mode skip button */
+.build-skip-button {
+  display: inline-block;
+  padding: 4px 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #a0aec0;
+  background: transparent;
+  border: 1px solid #cbd5e0;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease;
+  margin-left: auto;
+}
+
+.build-skip-button:hover {
+  color: #718096;
+  border-color: #a0aec0;
+}
+
+.build-skip-button:active {
+  color: #4a5568;
+}
+
 /* Settings toggle button (parent feature) */
 .settings-toggle {
   background: rgba(255, 255, 255, 0.5);

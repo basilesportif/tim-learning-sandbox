@@ -303,6 +303,9 @@ function getFlatBuildChallenges() {
   return flat;
 }
 
+// Counter for unique IDs in build mode
+let buildIdCounter = 0;
+
 /**
  * Initialize build level state from build level config
  */
@@ -314,24 +317,25 @@ function initializeBuildLevelState(state, challengeIndex) {
     return state;
   }
 
-  // Create resource items with unique IDs
+  // Create resource items with unique IDs using counter to avoid duplicates
   const carts = [];
   const bags = [];
   const balls = [];
+  const baseId = Date.now();
 
   // Create cart resources
   for (let i = 0; i < (challenge.resources?.carts || 0); i++) {
-    carts.push({ id: `cart-${Date.now()}-${i}`, type: 'cart' });
+    carts.push({ id: `cart-${baseId}-${buildIdCounter++}`, type: 'cart' });
   }
 
   // Create bag resources
   for (let i = 0; i < (challenge.resources?.bags || 0); i++) {
-    bags.push({ id: `bag-${Date.now()}-${i}`, type: 'bag' });
+    bags.push({ id: `bag-${baseId}-${buildIdCounter++}`, type: 'bag' });
   }
 
   // Create ball resources
   for (let i = 0; i < (challenge.resources?.balls || 0); i++) {
-    balls.push({ id: `ball-${Date.now()}-${i}`, type: 'ball' });
+    balls.push({ id: `ball-${baseId}-${buildIdCounter++}`, type: 'ball' });
   }
 
   return {
@@ -957,6 +961,7 @@ function gameReducer(state, action) {
 function App() {
   const [state, dispatch] = useReducer(gameReducer, null, createInitialState);
   const [showSkipGate, setShowSkipGate] = useState(false);
+  const [showBuildSkipGate, setShowBuildSkipGate] = useState(false);
   const unlockTimeoutRef = useRef(null);
 
   // Get current level and prompt
@@ -981,9 +986,17 @@ function App() {
     const saved = localStorage.getItem('countGrouping_progress');
     if (saved) {
       try {
-        const { levelIndex, promptIndex, mode } = JSON.parse(saved);
+        const { levelIndex, promptIndex, mode, buildLevelIndex } = JSON.parse(saved);
         if (mode === 'challenge' && levelIndex !== undefined && promptIndex !== undefined) {
           dispatch({ type: ActionTypes.INIT_LEVEL, payload: { levelIndex, promptIndex } });
+          return;
+        }
+        if (mode === 'build' && buildLevelIndex !== undefined) {
+          dispatch({ type: ActionTypes.INIT_MODE, payload: { mode: 'build' } });
+          // Initialize to saved build level after mode is set
+          setTimeout(() => {
+            dispatch({ type: ActionTypes.INIT_BUILD_LEVEL, payload: { levelIndex: buildLevelIndex } });
+          }, 0);
           return;
         }
       } catch (e) {
@@ -993,7 +1006,7 @@ function App() {
     dispatch({ type: ActionTypes.INIT_MODE, payload: { mode: 'challenge' } });
   }, []);
 
-  // Save progress to localStorage when level/prompt changes in challenge mode
+  // Save progress to localStorage when level/prompt changes in challenge or build mode
   useEffect(() => {
     if (state.mode === 'challenge') {
       localStorage.setItem('countGrouping_progress', JSON.stringify({
@@ -1002,8 +1015,14 @@ function App() {
         mode: state.mode,
         timestamp: Date.now()
       }));
+    } else if (state.mode === 'build') {
+      localStorage.setItem('countGrouping_progress', JSON.stringify({
+        buildLevelIndex: state.buildLevelIndex,
+        mode: state.mode,
+        timestamp: Date.now()
+      }));
     }
-  }, [state.levelIndex, state.promptIndex, state.mode]);
+  }, [state.levelIndex, state.promptIndex, state.buildLevelIndex, state.mode]);
 
   // Handle scripted container unlock (e.g., L4-15)
   useEffect(() => {
@@ -1144,18 +1163,27 @@ function App() {
   }, []);
 
   const handleNextPrompt = useCallback(() => {
-    // Check if this is the last prompt - if so, clear progress
-    const level = getLevel(state.levelIndex);
-    const isLastPromptInLevel = state.promptIndex + 1 >= (level?.prompts.length || 0);
-    const isLastLevel = state.levelIndex + 1 >= LEVELS.length;
+    // Check if this is the last prompt/challenge - if so, clear progress
+    if (state.mode === 'build') {
+      const challenges = getFlatBuildChallenges();
+      const isLastChallenge = state.buildLevelIndex + 1 >= challenges.length;
+      if (isLastChallenge) {
+        // User completed all Build challenges - clear saved progress
+        localStorage.removeItem('countGrouping_progress');
+      }
+    } else {
+      const level = getLevel(state.levelIndex);
+      const isLastPromptInLevel = state.promptIndex + 1 >= (level?.prompts.length || 0);
+      const isLastLevel = state.levelIndex + 1 >= LEVELS.length;
 
-    if (isLastPromptInLevel && isLastLevel) {
-      // User completed all levels - clear saved progress
-      localStorage.removeItem('countGrouping_progress');
+      if (isLastPromptInLevel && isLastLevel) {
+        // User completed all levels - clear saved progress
+        localStorage.removeItem('countGrouping_progress');
+      }
     }
 
     dispatch({ type: ActionTypes.NEXT_PROMPT });
-  }, [state.levelIndex, state.promptIndex]);
+  }, [state.mode, state.levelIndex, state.promptIndex, state.buildLevelIndex]);
 
   const handleRetry = useCallback(() => {
     dispatch({ type: ActionTypes.DISMISS_SUCCESS });
@@ -1172,6 +1200,19 @@ function App() {
 
   const handleSkipCancel = useCallback(() => {
     setShowSkipGate(false);
+  }, []);
+
+  const handleBuildSkipClick = useCallback(() => {
+    setShowBuildSkipGate(true);
+  }, []);
+
+  const handleBuildSkipSuccess = useCallback(() => {
+    setShowBuildSkipGate(false);
+    dispatch({ type: ActionTypes.NEXT_PROMPT });
+  }, []);
+
+  const handleBuildSkipCancel = useCallback(() => {
+    setShowBuildSkipGate(false);
   }, []);
 
   // ==========================================
@@ -1270,6 +1311,9 @@ function App() {
               <span className="build-progress">
                 {buildProgress.current} / {buildProgress.total}
               </span>
+              <button className="skip-button build-skip-button" onClick={handleBuildSkipClick}>
+                Skip
+              </button>
             </div>
           )}
         </div>
@@ -1377,6 +1421,12 @@ function App() {
         visible={showSkipGate}
         onSuccess={handleSkipSuccess}
         onCancel={handleSkipCancel}
+      />
+
+      <ParentGate
+        visible={showBuildSkipGate}
+        onSuccess={handleBuildSkipSuccess}
+        onCancel={handleBuildSkipCancel}
       />
     </div>
   );

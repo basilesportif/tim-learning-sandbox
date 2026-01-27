@@ -160,6 +160,9 @@
   touch-action: none;
   -webkit-touch-callout: none;
   -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .build-item:hover {
