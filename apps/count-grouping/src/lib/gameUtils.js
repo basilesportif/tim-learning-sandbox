@@ -10,12 +10,27 @@ export function generateId() {
 }
 
 /**
+ * Calculate extra balls to spawn beyond the target
+ * Spawns 3-5 extra balls, or 20% more, whichever is greater
+ * @param {number} target - The target number of balls
+ * @returns {number} - Number of extra balls to add
+ */
+export function calculateExtraBalls(target) {
+  const percentageExtra = Math.ceil(target * 0.2); // 20% extra
+  const minExtra = 3;
+  const maxExtra = Math.max(5, percentageExtra);
+  // Random between minExtra and maxExtra
+  return Math.floor(Math.random() * (maxExtra - minExtra + 1)) + minExtra;
+}
+
+/**
  * Create an array of ball objects with random positions
- * @param {{ total: number, sport: 'soccer' | 'basketball' }} options
+ * @param {{ total: number, sport: 'soccer' | 'basketball', extraBalls?: number }} options
  * @returns {Array<{ id: string, type: string, status: string, x: number, y: number }>}
  */
-export function createBallPile({ total, sport }) {
-  const positions = generateBallPositions(total);
+export function createBallPile({ total, sport, extraBalls = 0 }) {
+  const totalBalls = total + extraBalls;
+  const positions = generateBallPositions(totalBalls);
 
   return positions.map((pos, index) => ({
     id: generateId(),

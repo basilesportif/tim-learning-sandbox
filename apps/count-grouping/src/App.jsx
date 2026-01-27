@@ -13,7 +13,7 @@ import ParentGate from './components/ParentGate';
 
 // Utils and data
 import { LEVELS, getLevel, getPrompt, getTotalPrompts, getFlatPromptIndex } from './lib/levelData';
-import { createBallPile, getTotals, evaluateConstraints } from './lib/gameUtils';
+import { createBallPile, getTotals, evaluateConstraints, calculateExtraBalls } from './lib/gameUtils';
 import { BAG_CAPACITY, CART_CAPACITY, MAX_HISTORY } from './lib/constants';
 
 import './App.css';
@@ -179,10 +179,12 @@ function initializeLevelState(state, levelIndex, promptIndex) {
     return state;
   }
 
-  // Create ball pile
+  // Create ball pile with extra balls so child must decide when to stop
+  const extraBalls = calculateExtraBalls(prompt.total);
   const balls = createBallPile({
     total: prompt.total,
     sport: prompt.sport,
+    extraBalls,
   });
 
   // Determine container locks based on level and prompt
@@ -587,12 +589,28 @@ function gameReducer(state, action) {
         constraints: state.target.constraints,
       });
 
-      // Check total matches (all balls should be packed)
-      const looseBalls = state.balls.filter((b) => b.status === 'loose').length;
+      // Check if the correct number of balls have been packed
       const inContainerBalls = state.containers.bag.balls.length + state.containers.cart.balls.length;
+      const bundledBalls = state.balls.filter((b) => b.status === 'bundled').length;
+      const totalPacked = bundledBalls + inContainerBalls;
+      const targetTotal = state.target.total;
 
-      // Success requires: no loose balls, no balls in containers (all bundled), and constraints satisfied
-      const isSuccess = looseBalls === 0 && inContainerBalls === 0 && result.ok;
+      // Success requires: packed exactly the target amount, no balls in containers (all bundled), and constraints satisfied
+      const isSuccess = totalPacked === targetTotal && inContainerBalls === 0 && result.ok;
+
+      // Generate a helpful message for incorrect attempts
+      let checkMessage = null;
+      if (!isSuccess) {
+        if (inContainerBalls > 0) {
+          checkMessage = 'Finish filling your container first!';
+        } else if (totalPacked < targetTotal) {
+          checkMessage = `You packed ${totalPacked} balls but need ${targetTotal}. Pack more!`;
+        } else if (totalPacked > targetTotal) {
+          checkMessage = `You packed ${totalPacked} balls but only need ${targetTotal}. That's too many!`;
+        } else if (!result.ok) {
+          checkMessage = result.reason || 'Check the requirements and try again.';
+        }
+      }
 
       return {
         ...state,
@@ -600,6 +618,7 @@ function gameReducer(state, action) {
           ...state.ui,
           showTotals: true,
           lastCheck: isSuccess ? 'correct' : 'incorrect',
+          checkMessage,
         },
       };
     }
@@ -1006,8 +1025,8 @@ function App() {
         isSuccess={state.ui.lastCheck === 'correct'}
         message={
           state.ui.lastCheck === 'correct'
-            ? 'You packed all the balls!'
-            : 'Keep trying! Make sure all balls are in bags or carts.'
+            ? `You packed exactly ${state.target.total} balls!`
+            : state.ui.checkMessage || 'Keep trying!'
         }
         onNext={handleNextPrompt}
         onRetry={handleRetry}
