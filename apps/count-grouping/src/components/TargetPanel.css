@@ -163,12 +163,67 @@
   }
 }
 
-/* Tablet */
-@media (min-width: 700px) {
+/* Tablet - compact to fit without scrolling */
+@media (min-width: 700px) and (max-height: 1100px) {
   .target-panel {
+    padding: 8px 12px;
+    gap: 8px;
+    max-width: 500px;
+  }
+
+  .level-badge {
+    padding: 6px 14px;
+    font-size: 0.9rem;
+  }
+
+  .prompt-area {
+    padding: 12px 16px;
+  }
+
+  .prompt-text {
+    font-size: 1.2rem;
+    margin-bottom: 4px;
+  }
+
+  .constraints-text {
+    font-size: 0.9rem;
+  }
+
+  .clipboard-clip {
+    width: 50px;
+    height: 20px;
+    top: -6px;
+  }
+
+  .clipboard-clip::after {
+    top: 4px;
+    width: 24px;
+    height: 10px;
+  }
+
+  .clipboard-top {
+    height: 16px;
+  }
+
+  .target-header {
+    gap: 10px;
+  }
+
+  .progress-bar {
+    height: 6px;
+  }
+
+  .progress-text {
+    font-size: 0.8rem;
+  }
+}
+
+/* Large screens - only apply on tall displays */
+@media (min-width: 1000px) and (min-height: 1100px) {
+  .target-panel {
+    max-width: 700px;
     padding: 20px;
     gap: 16px;
-    max-width: 600px;
   }
 
   .level-badge {
@@ -181,35 +236,21 @@
   }
 
   .prompt-text {
-    font-size: 1.6rem;
-  }
-
-  .constraints-text {
-    font-size: 1.1rem;
-  }
-
-  .clipboard-clip {
-    width: 80px;
-    height: 28px;
-  }
-
-  .clipboard-top {
-    height: 24px;
-  }
-}
-
-/* Large screens */
-@media (min-width: 1000px) {
-  .target-panel {
-    max-width: 700px;
-  }
-
-  .prompt-text {
     font-size: 1.8rem;
   }
 
   .constraints-text {
     font-size: 1.2rem;
+  }
+
+  .clipboard-clip {
+    width: 80px;
+    height: 28px;
+    top: -8px;
+  }
+
+  .clipboard-top {
+    height: 24px;
   }
 }
 

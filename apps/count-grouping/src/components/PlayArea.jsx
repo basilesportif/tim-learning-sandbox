@@ -126,37 +126,39 @@ const PlayArea = ({
         onTouchStart={handleBallDragStart(ball)}
       >
         {ball.type === 'soccer' && (
-          <svg className="ball-pattern" viewBox="0 0 40 40">
-            <circle cx="20" cy="20" r="18" fill="none" stroke="#333" strokeWidth="1" />
-            <polygon
-              points="20,5 26,12 24,20 16,20 14,12"
-              fill="#333"
-            />
-            <polygon
-              points="35,18 32,26 24,27 22,20 28,14"
-              fill="#333"
-            />
-            <polygon
-              points="30,34 22,35 16,28 18,21 26,22"
-              fill="#333"
-            />
-            <polygon
-              points="10,34 18,35 24,28 22,21 14,22"
-              fill="#333"
-            />
-            <polygon
-              points="5,18 8,26 16,27 18,20 12,14"
-              fill="#333"
-            />
+          <svg className="ball-pattern" viewBox="0 0 100 100">
+            <defs>
+              <radialGradient id={`soccer-gradient-${ball.id}`} cx="30%" cy="30%">
+                <stop offset="0%" stopColor="#ffffff" />
+                <stop offset="100%" stopColor="#e0e0e0" />
+              </radialGradient>
+            </defs>
+            <circle cx="50" cy="50" r="48" fill={`url(#soccer-gradient-${ball.id})`} stroke="#333" strokeWidth="2" />
+            {/* Center pentagon */}
+            <polygon points="50,25 61,40 57,55 43,55 39,40" fill="#333" />
+            {/* Top pentagon */}
+            <polygon points="50,5 58,15 50,22 42,15" fill="#333" />
+            {/* Right pentagons */}
+            <polygon points="75,35 82,48 75,58 65,52 65,42" fill="#333" />
+            <polygon points="68,72 75,82 65,90 55,85 58,75" fill="#333" />
+            {/* Left pentagons */}
+            <polygon points="25,35 35,42 35,52 25,58 18,48" fill="#333" />
+            <polygon points="32,72 42,75 45,85 35,90 25,82" fill="#333" />
           </svg>
         )}
         {ball.type === 'basketball' && (
-          <svg className="ball-pattern" viewBox="0 0 40 40">
-            <circle cx="20" cy="20" r="18" fill="none" stroke="#333" strokeWidth="1.5" />
-            <line x1="20" y1="2" x2="20" y2="38" stroke="#333" strokeWidth="1.5" />
-            <line x1="2" y1="20" x2="38" y2="20" stroke="#333" strokeWidth="1.5" />
-            <path d="M 8 8 Q 20 14 32 8" fill="none" stroke="#333" strokeWidth="1.5" />
-            <path d="M 8 32 Q 20 26 32 32" fill="none" stroke="#333" strokeWidth="1.5" />
+          <svg className="ball-pattern" viewBox="0 0 100 100">
+            <defs>
+              <radialGradient id={`basketball-gradient-${ball.id}`} cx="35%" cy="35%">
+                <stop offset="0%" stopColor="#f5a623" />
+                <stop offset="100%" stopColor="#d4841c" />
+              </radialGradient>
+            </defs>
+            <circle cx="50" cy="50" r="48" fill={`url(#basketball-gradient-${ball.id})`} stroke="#8B4513" strokeWidth="2" />
+            <path d="M 50 2 L 50 98" stroke="#333" strokeWidth="2" fill="none" />
+            <path d="M 2 50 L 98 50" stroke="#333" strokeWidth="2" fill="none" />
+            <path d="M 15 15 Q 50 35 85 15" stroke="#333" strokeWidth="2" fill="none" />
+            <path d="M 15 85 Q 50 65 85 85" stroke="#333" strokeWidth="2" fill="none" />
           </svg>
         )}
       </div>
@@ -165,6 +167,8 @@ const PlayArea = ({
 
   // Render bag container
   const renderBag = () => {
+    if (bag.isLocked) return null;
+
     const bagBalls = bag.balls || [];
     const isFull = bagBalls.length >= BAG_CAPACITY;
     const isHighlighted = dragState?.dragging && !isFull;
@@ -223,6 +227,8 @@ const PlayArea = ({
 
   // Render cart container
   const renderCart = () => {
+    if (cart.isLocked) return null;
+
     const cartBalls = cart.balls || [];
     const isFull = cartBalls.length >= CART_CAPACITY;
     const isHighlighted = dragState?.dragging && !isFull;
@@ -281,8 +287,8 @@ const PlayArea = ({
 
       {/* Containers on right side */}
       <div className="containers-zone">
-        {renderBag()}
-        {renderCart()}
+        {!bag.isLocked && renderBag()}
+        {!cart.isLocked && renderCart()}
       </div>
 
       {/* Dragging ball overlay */}
@@ -298,22 +304,39 @@ const PlayArea = ({
           }}
         >
           {dragState.ball?.type === 'soccer' && (
-            <svg className="ball-pattern" viewBox="0 0 40 40">
-              <circle cx="20" cy="20" r="18" fill="none" stroke="#333" strokeWidth="1" />
-              <polygon points="20,5 26,12 24,20 16,20 14,12" fill="#333" />
-              <polygon points="35,18 32,26 24,27 22,20 28,14" fill="#333" />
-              <polygon points="30,34 22,35 16,28 18,21 26,22" fill="#333" />
-              <polygon points="10,34 18,35 24,28 22,21 14,22" fill="#333" />
-              <polygon points="5,18 8,26 16,27 18,20 12,14" fill="#333" />
+            <svg className="ball-pattern" viewBox="0 0 100 100">
+              <defs>
+                <radialGradient id={`soccer-gradient-${dragState.ball.id}`} cx="30%" cy="30%">
+                  <stop offset="0%" stopColor="#ffffff" />
+                  <stop offset="100%" stopColor="#e0e0e0" />
+                </radialGradient>
+              </defs>
+              <circle cx="50" cy="50" r="48" fill={`url(#soccer-gradient-${dragState.ball.id})`} stroke="#333" strokeWidth="2" />
+              {/* Center pentagon */}
+              <polygon points="50,25 61,40 57,55 43,55 39,40" fill="#333" />
+              {/* Top pentagon */}
+              <polygon points="50,5 58,15 50,22 42,15" fill="#333" />
+              {/* Right pentagons */}
+              <polygon points="75,35 82,48 75,58 65,52 65,42" fill="#333" />
+              <polygon points="68,72 75,82 65,90 55,85 58,75" fill="#333" />
+              {/* Left pentagons */}
+              <polygon points="25,35 35,42 35,52 25,58 18,48" fill="#333" />
+              <polygon points="32,72 42,75 45,85 35,90 25,82" fill="#333" />
             </svg>
           )}
           {dragState.ball?.type === 'basketball' && (
-            <svg className="ball-pattern" viewBox="0 0 40 40">
-              <circle cx="20" cy="20" r="18" fill="none" stroke="#333" strokeWidth="1.5" />
-              <line x1="20" y1="2" x2="20" y2="38" stroke="#333" strokeWidth="1.5" />
-              <line x1="2" y1="20" x2="38" y2="20" stroke="#333" strokeWidth="1.5" />
-              <path d="M 8 8 Q 20 14 32 8" fill="none" stroke="#333" strokeWidth="1.5" />
-              <path d="M 8 32 Q 20 26 32 32" fill="none" stroke="#333" strokeWidth="1.5" />
+            <svg className="ball-pattern" viewBox="0 0 100 100">
+              <defs>
+                <radialGradient id={`basketball-gradient-${dragState.ball.id}`} cx="35%" cy="35%">
+                  <stop offset="0%" stopColor="#f5a623" />
+                  <stop offset="100%" stopColor="#d4841c" />
+                </radialGradient>
+              </defs>
+              <circle cx="50" cy="50" r="48" fill={`url(#basketball-gradient-${dragState.ball.id})`} stroke="#8B4513" strokeWidth="2" />
+              <path d="M 50 2 L 50 98" stroke="#333" strokeWidth="2" fill="none" />
+              <path d="M 2 50 L 98 50" stroke="#333" strokeWidth="2" fill="none" />
+              <path d="M 15 15 Q 50 35 85 15" stroke="#333" strokeWidth="2" fill="none" />
+              <path d="M 15 85 Q 50 65 85 85" stroke="#333" strokeWidth="2" fill="none" />
             </svg>
           )}
         </div>
