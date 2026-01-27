@@ -3,6 +3,7 @@ import './ModeSelector.css';
 const modes = [
   { id: 'free', label: 'Free Play', emoji: '🎮' },
   { id: 'challenge', label: 'Coach Challenges', emoji: '🏆' },
+  { id: 'build', label: 'Build Numbers', emoji: '🎯' },
 ];
 
 const ModeSelector = ({ mode, onModeChange }) => {

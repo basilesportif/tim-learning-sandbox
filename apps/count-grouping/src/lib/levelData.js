@@ -422,4 +422,178 @@ export function getAllPrompts() {
   return result;
 }
 
+/**
+ * BUILD LEVELS - "Build Numbers" challenge mode
+ *
+ * Players are given a target number and limited resources.
+ * They must build the number using the available carts, bags, and balls.
+ *
+ * Level progression:
+ * - Level 1: Carts + loose balls only
+ * - Level 2: Bags + loose balls only
+ * - Level 3: Carts + bags + loose balls
+ * - Level 4: Constraints (specific decomposition required)
+ */
+export const BUILD_LEVELS = [
+  // ===================================
+  // LEVEL 1: Carts + Loose Balls Only
+  // ===================================
+  {
+    id: 'build-level-1',
+    name: 'Level 1: Carts and Singles',
+    challenges: [
+      {
+        target: 23,
+        prompt: 'Build 23',
+        resources: { carts: 4, bags: 0, balls: 15 },
+        requireSpecific: false,
+      },
+      {
+        target: 47,
+        prompt: 'Build 47',
+        resources: { carts: 6, bags: 0, balls: 12 },
+        requireSpecific: false,
+      },
+      {
+        target: 61,
+        prompt: 'Build 61',
+        resources: { carts: 8, bags: 0, balls: 10 },
+        requireSpecific: false,
+      },
+      {
+        target: 35,
+        prompt: 'Build 35',
+        resources: { carts: 5, bags: 0, balls: 10 },
+        requireSpecific: false,
+      },
+      {
+        target: 19,
+        prompt: 'Build 19',
+        resources: { carts: 3, bags: 0, balls: 15 },
+        requireSpecific: false,
+      },
+    ],
+  },
+
+  // ===================================
+  // LEVEL 2: Bags + Loose Balls Only
+  // ===================================
+  {
+    id: 'build-level-2',
+    name: 'Level 2: Bags and Singles',
+    challenges: [
+      {
+        target: 17,
+        prompt: 'Build 17',
+        resources: { carts: 0, bags: 5, balls: 10 },
+        requireSpecific: false,
+      },
+      {
+        target: 33,
+        prompt: 'Build 33',
+        resources: { carts: 0, bags: 8, balls: 8 },
+        requireSpecific: false,
+      },
+      {
+        target: 28,
+        prompt: 'Build 28',
+        resources: { carts: 0, bags: 7, balls: 10 },
+        requireSpecific: false,
+      },
+      {
+        target: 12,
+        prompt: 'Build 12',
+        resources: { carts: 0, bags: 4, balls: 8 },
+        requireSpecific: false,
+      },
+      {
+        target: 24,
+        prompt: 'Build 24',
+        resources: { carts: 0, bags: 6, balls: 10 },
+        requireSpecific: false,
+      },
+    ],
+  },
+
+  // ==========================================
+  // LEVEL 3: Carts + Bags + Loose Balls
+  // ==========================================
+  {
+    id: 'build-level-3',
+    name: 'Level 3: All Containers',
+    challenges: [
+      {
+        target: 52,
+        prompt: 'Build 52',
+        resources: { carts: 6, bags: 4, balls: 12 },
+        requireSpecific: false,
+      },
+      {
+        target: 66,
+        prompt: 'Build 66',
+        resources: { carts: 8, bags: 5, balls: 10 },
+        requireSpecific: false,
+      },
+      {
+        target: 89,
+        prompt: 'Build 89',
+        resources: { carts: 10, bags: 6, balls: 12 },
+        requireSpecific: false,
+      },
+      {
+        target: 43,
+        prompt: 'Build 43',
+        resources: { carts: 5, bags: 3, balls: 8 },
+        requireSpecific: { carts: 4, bags: 0, balls: 3 },
+      },
+      {
+        target: 77,
+        prompt: 'Build 77',
+        resources: { carts: 9, bags: 5, balls: 10 },
+        requireSpecific: false,
+      },
+    ],
+  },
+
+  // ===================================
+  // LEVEL 4: Constraints
+  // ===================================
+  {
+    id: 'build-level-4',
+    name: 'Level 4: Constraints',
+    challenges: [
+      {
+        target: 27,
+        prompt: 'Build 27 using exactly 2 carts',
+        resources: { carts: 4, bags: 3, balls: 10 },
+        requireSpecific: { carts: 2, bags: 1, balls: 2 },
+      },
+      {
+        target: 45,
+        prompt: 'Build 45 using exactly 4 carts',
+        resources: { carts: 6, bags: 4, balls: 10 },
+        requireSpecific: { carts: 4, bags: 1, balls: 0 },
+      },
+      {
+        target: 38,
+        prompt: 'Build 38 using exactly 3 bags',
+        resources: { carts: 5, bags: 5, balls: 10 },
+        requireSpecific: { carts: 2, bags: 3, balls: 3 },
+      },
+      {
+        target: 56,
+        prompt: 'Build 56 with no bags',
+        resources: { carts: 7, bags: 0, balls: 10 },
+        requireSpecific: { carts: 5, bags: 0, balls: 6 },
+      },
+      {
+        target: 73,
+        prompt: 'Build 73 using exactly 7 carts',
+        resources: { carts: 9, bags: 4, balls: 8 },
+        requireSpecific: { carts: 7, bags: 0, balls: 3 },
+      },
+    ],
+  },
+];
+
 export default LEVELS;

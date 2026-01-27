@@ -64,6 +64,56 @@
   color: var(--text-primary);
 }
 
+/* Build mode prompt styling */
+.build-mode-prompt {
+  background: var(--white);
+  padding: var(--space-md);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-medium);
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.build-mode-text {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.build-progress {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+/* Settings toggle button (parent feature) */
+.settings-toggle {
+  background: rgba(255, 255, 255, 0.5);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--space-xs);
+  cursor: pointer;
+  color: var(--text-secondary);
+  opacity: 0.6;
+  transition: opacity 0.2s, background-color 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: var(--space-sm);
+}
+
+.settings-toggle:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.settings-toggle:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 /* Main play area */
 .app-main {
   display: flex;
@@ -114,6 +164,15 @@
     font-size: var(--font-size-md);
   }
 
+  .build-mode-prompt {
+    padding: var(--space-sm);
+    gap: var(--space-sm);
+  }
+
+  .build-mode-text {
+    font-size: var(--font-size-md);
+  }
+
   .app-footer {
     gap: var(--space-xs);
   }
@@ -159,6 +218,14 @@
   }
 
   .free-play-text {
+    font-size: var(--font-size-sm);
+  }
+
+  .build-mode-prompt {
+    padding: var(--space-xs) var(--space-sm);
+  }
+
+  .build-mode-text {
     font-size: var(--font-size-sm);
   }
 }

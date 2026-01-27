@@ -4,6 +4,7 @@ import { useReducer, useCallback, useEffect, useRef, useMemo, useState } from 'r
 import ModeSelector from './components/ModeSelector';
 import TargetPanel from './components/TargetPanel';
 import PlayArea from './components/PlayArea';
+import BuildPlayArea from './components/BuildPlayArea';
 import Shelf from './components/Shelf';
 import ControlBar from './components/ControlBar';
 import CountingDisplay from './components/CountingDisplay';
@@ -12,7 +13,7 @@ import SuccessOverlay from './components/SuccessOverlay';
 import ParentGate from './components/ParentGate';
 
 // Utils and data
-import { LEVELS, getLevel, getPrompt, getTotalPrompts, getFlatPromptIndex } from './lib/levelData';
+import { LEVELS, BUILD_LEVELS, getLevel, getPrompt, getTotalPrompts, getFlatPromptIndex } from './lib/levelData';
 import { createBallPile, getTotals, evaluateConstraints, calculateExtraBalls } from './lib/gameUtils';
 import { BAG_CAPACITY, CART_CAPACITY, MAX_HISTORY } from './lib/constants';
 
@@ -23,7 +24,7 @@ import './App.css';
 // ==========================================
 
 const createInitialState = () => ({
-  mode: 'challenge', // 'free' | 'challenge'
+  mode: 'challenge', // 'free' | 'challenge' | 'build'
   levelIndex: 0,
   promptIndex: 0,
   target: {
@@ -65,6 +66,13 @@ const createInitialState = () => ({
     hintMessage: null,
   },
   history: [],
+  // Build mode state
+  buildResources: { carts: [], bags: [], balls: [] },
+  answerZone: { carts: [], bags: [], balls: [] },
+  showRunningTotal: false,
+  buildLevelIndex: 0,
+  buildTarget: null,
+  buildRequireSpecific: null,
 });
 
 // ==========================================
@@ -91,6 +99,13 @@ const ActionTypes = {
   NEXT_PROMPT: 'NEXT_PROMPT',
   SET_SHOW_TOTALS: 'SET_SHOW_TOTALS',
   DISMISS_SUCCESS: 'DISMISS_SUCCESS',
+  // Build mode actions
+  INIT_BUILD_MODE: 'INIT_BUILD_MODE',
+  INIT_BUILD_LEVEL: 'INIT_BUILD_LEVEL',
+  BUILD_DRAG_TO_ANSWER: 'BUILD_DRAG_TO_ANSWER',
+  BUILD_DRAG_FROM_ANSWER: 'BUILD_DRAG_FROM_ANSWER',
+  BUILD_CHECK_ANSWER: 'BUILD_CHECK_ANSWER',
+  TOGGLE_RUNNING_TOTAL: 'TOGGLE_RUNNING_TOTAL',
 };
 
 // ==========================================
@@ -270,6 +285,90 @@ function getRandomBallCount(min = 30, max = 80) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+/**
+ * Get flattened build challenges from BUILD_LEVELS
+ * BUILD_LEVELS has structure: [{ challenges: [...] }, ...]
+ * Returns flat array of all challenges
+ */
+function getFlatBuildChallenges() {
+  const buildLevels = BUILD_LEVELS || [];
+  const flat = [];
+  for (const level of buildLevels) {
+    if (level.challenges && Array.isArray(level.challenges)) {
+      for (const challenge of level.challenges) {
+        flat.push({ ...challenge, levelName: level.name });
+      }
+    }
+  }
+  return flat;
+}
+
+/**
+ * Initialize build level state from build level config
+ */
+function initializeBuildLevelState(state, challengeIndex) {
+  const challenges = getFlatBuildChallenges();
+  const challenge = challenges[challengeIndex];
+
+  if (!challenge) {
+    return state;
+  }
+
+  // Create resource items with unique IDs
+  const carts = [];
+  const bags = [];
+  const balls = [];
+
+  // Create cart resources
+  for (let i = 0; i < (challenge.resources?.carts || 0); i++) {
+    carts.push({ id: `cart-${Date.now()}-${i}`, type: 'cart' });
+  }
+
+  // Create bag resources
+  for (let i = 0; i < (challenge.resources?.bags || 0); i++) {
+    bags.push({ id: `bag-${Date.now()}-${i}`, type: 'bag' });
+  }
+
+  // Create ball resources
+  for (let i = 0; i < (challenge.resources?.balls || 0); i++) {
+    balls.push({ id: `ball-${Date.now()}-${i}`, type: 'ball' });
+  }
+
+  return {
+    ...state,
+    mode: 'build',
+    buildLevelIndex: challengeIndex,
+    buildTarget: challenge.target,
+    buildRequireSpecific: challenge.requireSpecific || null,
+    buildResources: { carts, bags, balls },
+    answerZone: { carts: [], bags: [], balls: [] },
+    target: {
+      text: challenge.prompt || `Build the number ${challenge.target}`,
+      total: challenge.target,
+      sport: 'soccer',
+      constraints: {},
+    },
+    ui: {
+      ...state.ui,
+      showTotals: false,
+      lastCheck: null,
+      hintActive: false,
+      hintMessage: null,
+    },
+  };
+}
+
+/**
+ * Calculate total value in answer zone for build mode
+ */
+function calculateBuildTotal(answerZone) {
+  return (
+    answerZone.carts.length * 10 +
+    answerZone.bags.length * 5 +
+    answerZone.balls.length
+  );
+}
+
 // ==========================================
 // Reducer
 // ==========================================
@@ -312,6 +411,13 @@ function gameReducer(state, action) {
             },
           },
         };
+      } else if (mode === 'build') {
+        // Build mode: start at build level 0
+        const newState = {
+          ...createInitialState(),
+          mode: 'build',
+        };
+        return initializeBuildLevelState(newState, 0);
       } else {
         // Challenge mode: start at level 0, prompt 0
         const newState = {
@@ -647,6 +753,22 @@ function gameReducer(state, action) {
     }
 
     case ActionTypes.NEXT_PROMPT: {
+      // Handle build mode progression
+      if (state.mode === 'build') {
+        const challenges = getFlatBuildChallenges();
+        if (state.buildLevelIndex + 1 < challenges.length) {
+          return initializeBuildLevelState(state, state.buildLevelIndex + 1);
+        }
+        // Build mode complete - stay on last level
+        return {
+          ...state,
+          ui: {
+            ...state.ui,
+            lastCheck: null,
+          },
+        };
+      }
+
       const level = getLevel(state.levelIndex);
       if (!level) return state;
 
@@ -688,6 +810,138 @@ function gameReducer(state, action) {
           lastCheck: null,
           showTotals: false,
         },
+      };
+    }
+
+    // ==========================================
+    // Build Mode Actions
+    // ==========================================
+
+    case ActionTypes.INIT_BUILD_MODE: {
+      const newState = {
+        ...createInitialState(),
+        mode: 'build',
+      };
+      return initializeBuildLevelState(newState, 0);
+    }
+
+    case ActionTypes.INIT_BUILD_LEVEL: {
+      const { levelIndex } = action.payload;
+      return initializeBuildLevelState(state, levelIndex);
+    }
+
+    case ActionTypes.BUILD_DRAG_TO_ANSWER: {
+      const { itemId, itemType } = action.payload;
+
+      // Find and remove item from resources
+      const resourceKey = itemType === 'cart' ? 'carts' : itemType === 'bag' ? 'bags' : 'balls';
+      const item = state.buildResources[resourceKey].find((i) => i.id === itemId);
+
+      if (!item) return state;
+
+      const newResources = {
+        ...state.buildResources,
+        [resourceKey]: state.buildResources[resourceKey].filter((i) => i.id !== itemId),
+      };
+
+      const newAnswerZone = {
+        ...state.answerZone,
+        [resourceKey]: [...state.answerZone[resourceKey], item],
+      };
+
+      return {
+        ...state,
+        buildResources: newResources,
+        answerZone: newAnswerZone,
+      };
+    }
+
+    case ActionTypes.BUILD_DRAG_FROM_ANSWER: {
+      const { itemId, itemType } = action.payload;
+
+      // Find and remove item from answer zone
+      const resourceKey = itemType === 'cart' ? 'carts' : itemType === 'bag' ? 'bags' : 'balls';
+      const item = state.answerZone[resourceKey].find((i) => i.id === itemId);
+
+      if (!item) return state;
+
+      const newAnswerZone = {
+        ...state.answerZone,
+        [resourceKey]: state.answerZone[resourceKey].filter((i) => i.id !== itemId),
+      };
+
+      const newResources = {
+        ...state.buildResources,
+        [resourceKey]: [...state.buildResources[resourceKey], item],
+      };
+
+      return {
+        ...state,
+        buildResources: newResources,
+        answerZone: newAnswerZone,
+      };
+    }
+
+    case ActionTypes.BUILD_CHECK_ANSWER: {
+      const total = calculateBuildTotal(state.answerZone);
+      const target = state.buildTarget;
+
+      // Check if total matches target
+      if (total !== target) {
+        return {
+          ...state,
+          ui: {
+            ...state.ui,
+            showTotals: true,
+            lastCheck: 'incorrect',
+            checkMessage: `You built ${total}, but need ${target}`,
+          },
+        };
+      }
+
+      // Check requireSpecific if applicable
+      if (state.buildRequireSpecific) {
+        const req = state.buildRequireSpecific;
+        const ans = state.answerZone;
+
+        if (
+          (req.carts !== undefined && ans.carts.length !== req.carts) ||
+          (req.bags !== undefined && ans.bags.length !== req.bags) ||
+          (req.balls !== undefined && ans.balls.length !== req.balls)
+        ) {
+          const expectedParts = [];
+          if (req.carts !== undefined) expectedParts.push(`${req.carts} cart${req.carts !== 1 ? 's' : ''}`);
+          if (req.bags !== undefined) expectedParts.push(`${req.bags} bag${req.bags !== 1 ? 's' : ''}`);
+          if (req.balls !== undefined) expectedParts.push(`${req.balls} ball${req.balls !== 1 ? 's' : ''}`);
+
+          return {
+            ...state,
+            ui: {
+              ...state.ui,
+              showTotals: true,
+              lastCheck: 'incorrect',
+              checkMessage: `Use exactly ${expectedParts.join(', ')}`,
+            },
+          };
+        }
+      }
+
+      // Success!
+      return {
+        ...state,
+        ui: {
+          ...state.ui,
+          showTotals: true,
+          lastCheck: 'correct',
+          checkMessage: null,
+        },
+      };
+    }
+
+    case ActionTypes.TOGGLE_RUNNING_TOTAL: {
+      return {
+        ...state,
+        showRunningTotal: !state.showRunningTotal,
       };
     }
 
@@ -921,6 +1175,32 @@ function App() {
   }, []);
 
   // ==========================================
+  // Build Mode Event Handlers
+  // ==========================================
+
+  const handleBuildDragToAnswer = useCallback((itemId, itemType) => {
+    dispatch({
+      type: ActionTypes.BUILD_DRAG_TO_ANSWER,
+      payload: { itemId, itemType },
+    });
+  }, []);
+
+  const handleBuildDragFromAnswer = useCallback((itemId, itemType) => {
+    dispatch({
+      type: ActionTypes.BUILD_DRAG_FROM_ANSWER,
+      payload: { itemId, itemType },
+    });
+  }, []);
+
+  const handleBuildCheck = useCallback(() => {
+    dispatch({ type: ActionTypes.BUILD_CHECK_ANSWER });
+  }, []);
+
+  const handleToggleRunningTotal = useCallback(() => {
+    dispatch({ type: ActionTypes.TOGGLE_RUNNING_TOTAL });
+  }, []);
+
+  // ==========================================
   // Derived Values
   // ==========================================
 
@@ -943,6 +1223,22 @@ function App() {
     if (state.mode === 'free') return true;
     return currentLevel?.tradingEnabled || false;
   }, [state.mode, currentLevel]);
+
+  // Build mode running total
+  const buildRunningTotal = useMemo(() => {
+    if (state.mode !== 'build') return 0;
+    return calculateBuildTotal(state.answerZone);
+  }, [state.mode, state.answerZone]);
+
+  // Build mode progress
+  const buildProgress = useMemo(() => {
+    if (state.mode !== 'build') return { current: 0, total: 0 };
+    const challenges = getFlatBuildChallenges();
+    return {
+      current: state.buildLevelIndex + 1,
+      total: challenges.length,
+    };
+  }, [state.mode, state.buildLevelIndex]);
 
   // ==========================================
   // Render
@@ -968,8 +1264,28 @@ function App() {
               <p className="free-play-text">{state.target.text}</p>
             </div>
           )}
+          {state.mode === 'build' && (
+            <div className="build-mode-prompt">
+              <p className="build-mode-text">{state.target.text}</p>
+              <span className="build-progress">
+                {buildProgress.current} / {buildProgress.total}
+              </span>
+            </div>
+          )}
         </div>
         <div className="header-right">
+          {state.mode === 'build' && (
+            <button
+              className="settings-toggle"
+              onClick={handleToggleRunningTotal}
+              title="Toggle running total"
+              aria-label="Toggle running total display"
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+              </svg>
+            </button>
+          )}
           <Shelf
             bags={state.shelf.bags}
             carts={state.shelf.carts}
@@ -982,37 +1298,59 @@ function App() {
       </header>
 
       <main className="app-main">
-        <PlayArea
-          balls={state.balls}
-          containers={state.containers}
-          dragState={{
-            dragging: state.ui.dragging !== null,
-            ball: state.ui.dragging?.ball,
-            position: state.ui.dragPos,
-          }}
-          onDragStart={handleDragStart}
-          onDragMove={handleDragMove}
-          onDragEnd={handleDragEnd}
-          onDrop={handleDrop}
-        />
+        {state.mode === 'build' ? (
+          <BuildPlayArea
+            resources={state.buildResources}
+            answerZone={state.answerZone}
+            target={state.buildTarget}
+            showRunningTotal={state.showRunningTotal}
+            runningTotal={buildRunningTotal}
+            onDragToAnswer={handleBuildDragToAnswer}
+            onDragFromAnswer={handleBuildDragFromAnswer}
+          />
+        ) : (
+          <PlayArea
+            balls={state.balls}
+            containers={state.containers}
+            dragState={{
+              dragging: state.ui.dragging !== null,
+              ball: state.ui.dragging?.ball,
+              position: state.ui.dragPos,
+            }}
+            onDragStart={handleDragStart}
+            onDragMove={handleDragMove}
+            onDragEnd={handleDragEnd}
+            onDrop={handleDrop}
+          />
+        )}
       </main>
 
       <footer className="app-footer">
         <ControlBar
           onHint={handleHint}
           onUndo={handleUndo}
-          onCheck={handleCheck}
-          hintDisabled={false}
-          undoDisabled={state.history.length === 0}
+          onCheck={state.mode === 'build' ? handleBuildCheck : handleCheck}
+          hintDisabled={state.mode === 'build'}
+          undoDisabled={state.mode === 'build' || state.history.length === 0}
           checkDisabled={false}
         />
-        <CountingDisplay
-          carts={state.shelf.carts}
-          bags={state.shelf.bags}
-          singles={totals.singles}
-          total={totals.total}
-          visible={state.ui.showTotals}
-        />
+        {state.mode === 'build' ? (
+          <CountingDisplay
+            carts={state.answerZone.carts.length}
+            bags={state.answerZone.bags.length}
+            singles={state.answerZone.balls.length}
+            total={buildRunningTotal}
+            visible={state.ui.showTotals || state.showRunningTotal}
+          />
+        ) : (
+          <CountingDisplay
+            carts={state.shelf.carts}
+            bags={state.shelf.bags}
+            singles={totals.singles}
+            total={totals.total}
+            visible={state.ui.showTotals}
+          />
+        )}
       </footer>
 
       <HintOverlay
@@ -1025,7 +1363,9 @@ function App() {
         isSuccess={state.ui.lastCheck === 'correct'}
         message={
           state.ui.lastCheck === 'correct'
-            ? `You packed exactly ${state.target.total} balls!`
+            ? state.mode === 'build'
+              ? `You built ${state.buildTarget}!`
+              : `You packed exactly ${state.target.total} balls!`
             : state.ui.checkMessage || 'Keep trying!'
         }
         onNext={handleNextPrompt}
