@@ -49,50 +49,45 @@ const PlayArea = ({
     return null;
   }, []);
 
-  // Global event handlers for dragging
+  // Global event handlers for dragging using Pointer Events API
+  // Pointer events unify mouse and touch, fixing tablet two-tap issues
   useEffect(() => {
     if (!dragState?.dragging) return;
 
     const handleMove = (e) => {
       e.preventDefault();
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-      onDragMove?.({ x: clientX, y: clientY });
+      onDragMove?.({ x: e.clientX, y: e.clientY });
     };
 
     const handleEnd = (e) => {
       e.preventDefault();
-      const clientX = e.changedTouches ? e.changedTouches[0].clientX : e.clientX;
-      const clientY = e.changedTouches ? e.changedTouches[0].clientY : e.clientY;
-      const dropTarget = getDropTarget(clientX, clientY);
+      const dropTarget = getDropTarget(e.clientX, e.clientY);
       onDrop?.(dropTarget);
       onDragEnd?.();
     };
 
-    // Add listeners to window for reliable tracking
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleEnd);
-    window.addEventListener('touchmove', handleMove, { passive: false });
-    window.addEventListener('touchend', handleEnd);
-    window.addEventListener('touchcancel', handleEnd);
+    // Use pointer events for unified mouse/touch handling
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleEnd);
+    window.addEventListener('pointercancel', handleEnd);
 
     return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleEnd);
-      window.removeEventListener('touchmove', handleMove);
-      window.removeEventListener('touchend', handleEnd);
-      window.removeEventListener('touchcancel', handleEnd);
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleEnd);
+      window.removeEventListener('pointercancel', handleEnd);
     };
   }, [dragState?.dragging, onDragMove, onDrop, onDragEnd, getDropTarget]);
 
-  // Handle drag start on a ball
-  const handleBallDragStart = useCallback(
+  // Handle drag start on a ball using Pointer Events
+  // setPointerCapture ensures the element receives all pointer events during drag,
+  // fixing the tablet issue where two taps were required
+  const handleBallPointerDown = useCallback(
     (ball, e) => {
       e.preventDefault();
       e.stopPropagation();
-      const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-      const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-      onDragStart?.(ball, { x: clientX, y: clientY });
+      // Capture pointer to ensure we get all move/up events even outside the element
+      e.target.setPointerCapture(e.pointerId);
+      onDragStart?.(ball, { x: e.clientX, y: e.clientY });
     },
     [onDragStart]
   );
@@ -111,8 +106,7 @@ const PlayArea = ({
           top: `${ball.y}%`,
           backgroundColor: ball.type === 'basketball' ? COLORS.basketball : COLORS.soccer,
         }}
-        onMouseDown={(e) => handleBallDragStart(ball, e)}
-        onTouchStart={(e) => handleBallDragStart(ball, e)}
+        onPointerDown={(e) => handleBallPointerDown(ball, e)}
       >
         {ball.type === 'soccer' && (
           <svg className="ball-pattern" viewBox="0 0 100 100">
