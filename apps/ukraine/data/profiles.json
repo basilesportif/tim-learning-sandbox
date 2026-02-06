@@ -1,0 +1,97 @@
+{
+  "ru": {
+    "child_id": "single-child",
+    "language": "ru",
+    "skill_level": 25,
+    "comfort_band": [
+      19,
+      29
+    ],
+    "instructional_band": [
+      29,
+      37
+    ],
+    "frustration_band": [
+      37,
+      100
+    ],
+    "confidence": 0.2,
+    "trend_7d": 0,
+    "trend_30d": 0,
+    "bottleneck": "balanced",
+    "signals": {
+      "help_taps_per_100_words": 0,
+      "quiz_accuracy": 0,
+      "abandon_rate": 0,
+      "pace_wpm_proxy": 70
+    },
+    "recommended": {
+      "text_types": [
+        "short dialogue-heavy stories",
+        "gentle everyday stories"
+      ],
+      "activities": [
+        "read passage (3 min)",
+        "2 quick comprehension questions"
+      ],
+      "daily_plan": {
+        "challenges_per_day": 4,
+        "mix": {
+          "comfort": 0.7,
+          "instructional": 0.3,
+          "challenge": 0
+        }
+      }
+    },
+    "history": [],
+    "updated_ts": "2026-02-06T22:30:40.452Z"
+  },
+  "uk": {
+    "child_id": "single-child",
+    "language": "uk",
+    "skill_level": 25,
+    "comfort_band": [
+      19,
+      29
+    ],
+    "instructional_band": [
+      29,
+      37
+    ],
+    "frustration_band": [
+      37,
+      100
+    ],
+    "confidence": 0.2,
+    "trend_7d": 0,
+    "trend_30d": 0,
+    "bottleneck": "balanced",
+    "signals": {
+      "help_taps_per_100_words": 0,
+      "quiz_accuracy": 0,
+      "abandon_rate": 0,
+      "pace_wpm_proxy": 70
+    },
+    "recommended": {
+      "text_types": [
+        "short dialogue-heavy stories",
+        "gentle everyday stories"
+      ],
+      "activities": [
+        "read passage (3 min)",
+        "2 quick comprehension questions"
+      ],
+      "daily_plan": {
+        "challenges_per_day": 4,
+        "mix": {
+          "comfort": 0.7,
+          "instructional": 0.3,
+          "challenge": 0
+        }
+      }
+    },
+    "history": [],
+    "updated_ts": "2026-02-06T22:30:40.453Z"
+  },
+  "updated_ts": "2026-02-06T22:30:40.453Z"
+}
