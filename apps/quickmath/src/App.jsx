@@ -17,6 +17,24 @@ function toAttemptSeconds(elapsedMs) {
   return Math.max(1, Math.ceil(elapsedMs / 1000));
 }
 
+function speakAttemptSeconds(seconds) {
+  if (!('speechSynthesis' in window)) {
+    return;
+  }
+
+  try {
+    const utterance = new SpeechSynthesisUtterance(
+      `${seconds} second${seconds === 1 ? '' : 's'}`
+    );
+    utterance.rate = 1;
+    utterance.pitch = 1;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+  } catch {
+    // Spoken time is optional. Ignore runtime speech errors.
+  }
+}
+
 function App() {
   const [phase, setPhase] = useState('idle');
   const [problem, setProblem] = useState(null);
@@ -101,6 +119,7 @@ function App() {
     const elapsedMs = stopActiveAttempt();
     const attemptSeconds = toAttemptSeconds(elapsedMs);
     setTimerSeconds(attemptSeconds);
+    speakAttemptSeconds(attemptSeconds);
 
     if (selectedChoice === problem.answer) {
       setFeedback({ message: 'Great job!', tone: 'success', seconds: attemptSeconds });
@@ -141,6 +160,9 @@ function App() {
     return () => {
       clearPendingTransitions();
       stopActiveAttempt();
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
     };
   }, [clearPendingTransitions, stopActiveAttempt]);
 

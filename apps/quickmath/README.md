@@ -11,6 +11,7 @@ Rapid-fire arithmetic practice for addition and subtraction.
 - Each question shows 3 consecutive answer choices
 - Choices always stay in `0..30`
 - Per-attempt timer runs while the question is active
+- On each submitted answer, the app speaks elapsed time (for example, `12 seconds`)
 - Feedback:
   - Correct: `Great job!`
   - Incorrect: `Try again!`
