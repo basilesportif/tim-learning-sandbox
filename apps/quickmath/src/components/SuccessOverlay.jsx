@@ -1,9 +1,23 @@
 import './SuccessOverlay.css';
 
+function getSuccessMessage(seconds) {
+  if (seconds < 10) {
+    return 'Super Fast!';
+  }
+
+  if (seconds < 25) {
+    return 'Really Quick!';
+  }
+
+  return 'Great Job!';
+}
+
 function SuccessOverlay({ visible, seconds }) {
   if (!visible) {
     return null;
   }
+
+  const successMessage = getSuccessMessage(seconds);
 
   return (
     <div className="success-overlay" role="status" aria-live="assertive">
@@ -13,7 +27,7 @@ function SuccessOverlay({ visible, seconds }) {
             <path d="M20 6L9 17l-5-5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </div>
-        <h3 className="success-title">Great job!</h3>
+        <h3 className="success-title">{successMessage}</h3>
         <p className="success-time-label">Time taken</p>
         <p className="success-time-value">{seconds}s</p>
       </div>

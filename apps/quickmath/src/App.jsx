@@ -17,22 +17,6 @@ function toAttemptSeconds(elapsedMs) {
   return Math.max(1, Math.ceil(elapsedMs / 1000));
 }
 
-function speakGreatJob() {
-  if (!('speechSynthesis' in window)) {
-    return;
-  }
-
-  try {
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance('Great job');
-    utterance.rate = 0.95;
-    utterance.pitch = 1.05;
-    window.speechSynthesis.speak(utterance);
-  } catch {
-    // Voice feedback is optional; ignore unsupported runtime failures.
-  }
-}
-
 function App() {
   const [phase, setPhase] = useState('idle');
   const [problem, setProblem] = useState(null);
@@ -121,7 +105,6 @@ function App() {
     if (selectedChoice === problem.answer) {
       setFeedback({ message: 'Great job!', tone: 'success', seconds: attemptSeconds });
       setPhase('feedback-correct');
-      speakGreatJob();
 
       nextTimeoutRef.current = window.setTimeout(() => {
         loadNewProblem();
@@ -158,9 +141,6 @@ function App() {
     return () => {
       clearPendingTransitions();
       stopActiveAttempt();
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
     };
   }, [clearPendingTransitions, stopActiveAttempt]);
 

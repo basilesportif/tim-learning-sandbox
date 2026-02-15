@@ -16,6 +16,10 @@ Rapid-fire arithmetic practice for addition and subtraction.
   - Incorrect: `Try again!`
 - Incorrect answers keep the same question and restart the timer
 - Correct answers show a full-screen success overlay with large time text and auto-advance after `1.6s`
+- Success overlay message by speed:
+  - under `10s`: `Super Fast!`
+  - under `25s`: `Really Quick!`
+  - otherwise: `Great Job!`
 
 ## Audio
 
