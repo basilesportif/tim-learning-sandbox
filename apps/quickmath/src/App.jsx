@@ -3,17 +3,34 @@ import AnswerChoices from './components/AnswerChoices';
 import FeedbackBanner from './components/FeedbackBanner';
 import ProblemCard from './components/ProblemCard';
 import StartGate from './components/StartGate';
+import SuccessOverlay from './components/SuccessOverlay';
 import TimerDisplay from './components/TimerDisplay';
 import { initAudioContext, startCountdownBeeps, stopCountdownBeeps } from './lib/beepAudio';
 import { formatProblem, generateChoices, generateProblem } from './lib/quickmathEngine';
 import { startAttemptTimer } from './lib/timer';
 import './App.css';
 
-const CORRECT_DELAY_MS = 1200;
+const CORRECT_DELAY_MS = 1600;
 const WRONG_RETRY_DELAY_MS = 900;
 
 function toAttemptSeconds(elapsedMs) {
   return Math.max(1, Math.ceil(elapsedMs / 1000));
+}
+
+function speakGreatJob() {
+  if (!('speechSynthesis' in window)) {
+    return;
+  }
+
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance('Great job');
+    utterance.rate = 0.95;
+    utterance.pitch = 1.05;
+    window.speechSynthesis.speak(utterance);
+  } catch {
+    // Voice feedback is optional; ignore unsupported runtime failures.
+  }
 }
 
 function App() {
@@ -104,6 +121,7 @@ function App() {
     if (selectedChoice === problem.answer) {
       setFeedback({ message: 'Great job!', tone: 'success', seconds: attemptSeconds });
       setPhase('feedback-correct');
+      speakGreatJob();
 
       nextTimeoutRef.current = window.setTimeout(() => {
         loadNewProblem();
@@ -140,10 +158,15 @@ function App() {
     return () => {
       clearPendingTransitions();
       stopActiveAttempt();
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
     };
   }, [clearPendingTransitions, stopActiveAttempt]);
 
   const isActive = phase === 'active';
+  const showSuccessOverlay = phase === 'feedback-correct' && feedback?.tone === 'success';
+  const showWrongFeedback = phase === 'feedback-wrong' && feedback?.tone === 'error';
   const problemText = formatProblem(problem);
 
   return (
@@ -163,7 +186,7 @@ function App() {
             <p className="practice-help">Pick the correct answer from the three choices.</p>
 
             <div className="feedback-slot">
-              {feedback ? (
+              {showWrongFeedback ? (
                 <FeedbackBanner
                   message={feedback.message}
                   seconds={feedback.seconds}
@@ -184,6 +207,11 @@ function App() {
           </section>
         </main>
       )}
+
+      <SuccessOverlay
+        visible={showSuccessOverlay}
+        seconds={feedback?.seconds ?? 0}
+      />
     </div>
   );
 }

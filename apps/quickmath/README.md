@@ -15,7 +15,7 @@ Rapid-fire arithmetic practice for addition and subtraction.
   - Correct: `Great job!`
   - Incorrect: `Try again!`
 - Incorrect answers keep the same question and restart the timer
-- Correct answers auto-advance after a short delay
+- Correct answers show a full-screen success overlay with large time text and auto-advance after `1.6s`
 
 ## Audio
 
