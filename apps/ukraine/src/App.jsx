@@ -6,15 +6,18 @@ import {
   downloadProfileExport,
   endSession,
   fetchDiagnosticTexts,
+  fetchChildSettings,
   fetchProfile,
   fetchTexts,
-  getAuthStatus,
-  logoutApp,
+  getParentAuthStatus,
+  loginParent,
+  logoutParent,
   resolveDiagnosticToken,
+  saveDiagnosticAdultObservation,
   sendSessionEvents,
   startDiagnosticRun,
   startSession,
-  unlockApp,
+  updateChildSettings,
 } from './lib/api';
 import {
   enqueueSession,
@@ -39,6 +42,17 @@ const TODAY_META_KEY = 'today_progress';
 const RECENT_TEXT_META_KEY = 'recent_text_ids';
 const DIAGNOSTIC_PASSAGES_DEFAULT = 3;
 const DIAGNOSTIC_QUESTIONS_DEFAULT = 2;
+const DEFAULT_CHILD_SETTINGS = {
+  language_schedule: 'alternate',
+  single_language: 'ru',
+  alternate_start_language: 'ru',
+};
+const DEFAULT_ADULT_OBSERVATION = {
+  hesitation_level: 'none',
+  decoding_support: 'none',
+  confidence: 'high',
+  attention: 'steady',
+};
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -70,6 +84,46 @@ function getDiagnosticTokenFromSearch(search) {
 
 function getTodayKey() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function normalizeLanguage(language) {
+  return language === 'uk' ? 'uk' : 'ru';
+}
+
+function normalizeChildSettings(settings) {
+  const safe = settings && typeof settings === 'object' ? settings : {};
+  const schedule = ['alternate', 'single', 'both'].includes(safe.language_schedule)
+    ? safe.language_schedule
+    : DEFAULT_CHILD_SETTINGS.language_schedule;
+
+  return {
+    ...DEFAULT_CHILD_SETTINGS,
+    ...safe,
+    language_schedule: schedule,
+    single_language: normalizeLanguage(safe.single_language || DEFAULT_CHILD_SETTINGS.single_language),
+    alternate_start_language: normalizeLanguage(
+      safe.alternate_start_language || DEFAULT_CHILD_SETTINGS.alternate_start_language,
+    ),
+  };
+}
+
+function getScheduledLanguage(settings, date = new Date()) {
+  const safe = normalizeChildSettings(settings);
+  if (safe.language_schedule === 'single') {
+    return safe.single_language;
+  }
+  if (safe.language_schedule === 'both') {
+    return null;
+  }
+
+  const startLanguage = safe.alternate_start_language;
+  const utcDays = Math.floor(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()) / 86400000);
+  const isEvenDay = utcDays % 2 === 0;
+
+  if (startLanguage === 'ru') {
+    return isEvenDay ? 'ru' : 'uk';
+  }
+  return isEvenDay ? 'uk' : 'ru';
 }
 
 function countWords(paragraphs) {
@@ -210,11 +264,14 @@ function ChallengeDots({ done, target }) {
 }
 
 function App() {
-  const [authReady, setAuthReady] = useState(false);
-  const [unlocked, setUnlocked] = useState(false);
-  const [unlockPassword, setUnlockPassword] = useState('');
-  const [unlockError, setUnlockError] = useState('');
-  const [unlockBusy, setUnlockBusy] = useState(false);
+  const [appReady, setAppReady] = useState(false);
+  const [parentAuthed, setParentAuthed] = useState(false);
+  const [parentPin, setParentPin] = useState('');
+  const [parentPinError, setParentPinError] = useState('');
+  const [parentPinBusy, setParentPinBusy] = useState(false);
+  const [childSettings, setChildSettings] = useState(DEFAULT_CHILD_SETTINGS);
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [settingsStatus, setSettingsStatus] = useState('');
 
   const [route, setRoute] = useState(() => getRouteFromPathname(window.location.pathname));
   const [locationSearch, setLocationSearch] = useState(window.location.search);
@@ -262,12 +319,20 @@ function App() {
   const [diagQuizLocked, setDiagQuizLocked] = useState(false);
   const [diagPassageResults, setDiagPassageResults] = useState({ ru: [], uk: [] });
   const [diagSummary, setDiagSummary] = useState(null);
+  const [diagAdultObservation, setDiagAdultObservation] = useState(DEFAULT_ADULT_OBSERVATION);
 
   const sessionRef = useRef(null);
   const flushingRef = useRef(false);
   const diagMetricsRef = useRef(null);
 
-  const activeProfile = useMemo(() => normalizeProfile(profiles[language], language), [profiles, language]);
+  const scheduledLanguage = useMemo(() => getScheduledLanguage(childSettings), [childSettings]);
+  const activeLanguage = childSettings.language_schedule === 'both'
+    ? language
+    : (scheduledLanguage || language);
+  const activeProfile = useMemo(
+    () => normalizeProfile(profiles[activeLanguage], activeLanguage),
+    [activeLanguage, profiles],
+  );
   const dailyTarget = Math.max(3, Math.min(6, Number(activeProfile?.recommended?.daily_plan?.challenges_per_day) || 4));
   const diagCurrentLanguage = diagLanguages[diagLanguageIndex] || 'ru';
 
@@ -300,6 +365,10 @@ function App() {
   }, [activeProfile, saveTodayProgress, todayProgress]);
 
   const refreshProfilesFromServer = useCallback(async () => {
+    if (!parentAuthed || !isOnline) {
+      return;
+    }
+
     try {
       const [ruProfile, ukProfile] = await Promise.all([
         fetchProfile('ru'),
@@ -317,15 +386,18 @@ function App() {
         putProfile('uk', nextProfiles.uk),
       ]);
     } catch (error) {
+      if (error.status === 401) {
+        setParentAuthed(false);
+      }
       console.warn('[ukraine] Could not refresh profiles from server:', error);
     }
-  }, []);
+  }, [isOnline, parentAuthed]);
 
   const loadTextsForLanguage = useCallback(async (nextLanguage, skill) => {
     const cachedTexts = await getTextsByLanguage(nextLanguage);
     let result = cachedTexts;
 
-    if (unlocked && isOnline) {
+    if (isOnline) {
       try {
         const response = await fetchTexts(nextLanguage, {
           min: Math.max(0, skill - 20),
@@ -348,10 +420,10 @@ function App() {
     }
 
     return result;
-  }, [isOnline, unlocked]);
+  }, [isOnline]);
 
   const flushQueue = useCallback(async () => {
-    if (!unlocked || !isOnline || flushingRef.current) {
+    if (!isOnline || flushingRef.current) {
       return;
     }
 
@@ -390,13 +462,8 @@ function App() {
 
           await removeQueuedSession(entry.queue_id);
         } catch (error) {
-          if (error.status === 401) {
-            setUnlocked(false);
-            setUnlockError('Session expired. Enter password again.');
-          }
-
           if (error.status === 429) {
-            setStatusMessage('Sync paused: too many auth attempts. Try again soon.');
+            setStatusMessage('Sync paused due to rate limit. Try again soon.');
           }
 
           break;
@@ -408,13 +475,14 @@ function App() {
       setSyncing(false);
       flushingRef.current = false;
     }
-  }, [isOnline, unlocked]);
+  }, [isOnline]);
 
   const startDailyChallenge = useCallback(async () => {
     setStatusMessage('');
 
-    const profile = normalizeProfile(profiles[language], language);
-    const availableTexts = await loadTextsForLanguage(language, profile.skill_level);
+    const sessionLanguage = activeLanguage;
+    const profile = normalizeProfile(profiles[sessionLanguage], sessionLanguage);
+    const availableTexts = await loadTextsForLanguage(sessionLanguage, profile.skill_level);
 
     if (availableTexts.length === 0) {
       setStatusMessage('No stories available yet. Connect to internet and try again.');
@@ -436,10 +504,10 @@ function App() {
     sessionRef.current = {
       localSessionId: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       startedAt,
-      language,
+      language: sessionLanguage,
       textId: picked.id,
       difficulty: Number(picked.difficulty_score) || 25,
-      events: [createEvent('SESSION_START', { text_id: picked.id, language })],
+      events: [createEvent('SESSION_START', { text_id: picked.id, language: sessionLanguage })],
       lastInteractionMs: Date.now(),
       idleGapCount: 0,
       wordTapCount: 0,
@@ -450,11 +518,12 @@ function App() {
     };
 
     setCurrentText(picked);
+    setLanguage(sessionLanguage);
     setQuizIndex(0);
     setQuizAnswers([]);
     setQuizLocked(false);
     setPlayScreen('reader');
-  }, [language, loadTextsForLanguage, profiles]);
+  }, [activeLanguage, loadTextsForLanguage, profiles]);
 
   const recordInteraction = useCallback((type, payload = {}) => {
     const session = sessionRef.current;
@@ -487,8 +556,8 @@ function App() {
       session.events.push(createEvent('WORD_REPLAY', { word }));
     }
 
-    speakText(word, language);
-  }, [language, recordInteraction]);
+    speakText(word, session.language);
+  }, [recordInteraction]);
 
   const handleSentencePlay = useCallback((sentence, sentenceIndex) => {
     if (!sentence || !sessionRef.current) {
@@ -498,14 +567,15 @@ function App() {
     const session = sessionRef.current;
     session.sentencePlayCount += 1;
     recordInteraction('SENTENCE_PLAY', { sentence_idx: sentenceIndex });
-    speakText(sentence, language);
-  }, [language, recordInteraction]);
+    speakText(sentence, session.language);
+  }, [recordInteraction]);
 
   const finishSession = useCallback(async (completed = true) => {
     const session = sessionRef.current;
     if (!session || !currentText) {
       return;
     }
+    const sessionLanguage = session.language === 'uk' ? 'uk' : 'ru';
 
     recordInteraction('SESSION_END', { completed, reason: completed ? 'completed' : 'abandoned' });
 
@@ -548,16 +618,16 @@ function App() {
       text_difficulty: Number(currentText.difficulty_score) || 25,
     };
 
-    const previousProfile = normalizeProfile(profiles[language], language);
+    const previousProfile = normalizeProfile(profiles[sessionLanguage], sessionLanguage);
     const provisional = updateProfileFromSummary(previousProfile, summary, endedAt);
-    const publicProvisional = toPublicProfile(provisional, language);
+    const publicProvisional = toPublicProfile(provisional, sessionLanguage);
 
-    setProfiles((prev) => ({ ...prev, [language]: publicProvisional }));
-    await putProfile(language, publicProvisional);
+    setProfiles((prev) => ({ ...prev, [sessionLanguage]: publicProvisional }));
+    await putProfile(sessionLanguage, publicProvisional);
 
     const queuePayload = {
       local_session_id: session.localSessionId,
-      language,
+      language: sessionLanguage,
       text_id: currentText.id,
       challenge_type: 'read_and_comprehension',
       difficulty_score: Number(currentText.difficulty_score) || 25,
@@ -580,7 +650,7 @@ function App() {
     setStatusMessage('Progress saved locally.');
 
     void flushQueue();
-  }, [currentText, flushQueue, incrementTodayProgress, language, profiles, recordInteraction]);
+  }, [currentText, flushQueue, incrementTodayProgress, profiles, recordInteraction]);
 
   const submitQuizAnswer = useCallback(async (choiceIndex) => {
     if (!currentText || !Array.isArray(currentText.quiz)) {
@@ -656,6 +726,7 @@ function App() {
     setDiagQuizIndex(0);
     setDiagQuizAnswers([]);
     setDiagQuizLocked(false);
+    setDiagAdultObservation(DEFAULT_ADULT_OBSERVATION);
     setDiagStatus('reader');
 
     diagMetricsRef.current = {
@@ -754,12 +825,14 @@ function App() {
     };
 
     const performance = scoreDiagnosticPerformance(summary);
+    const passageIndex = (diagPassageResults[diagCurrentLanguage] || []).length;
     const passageResult = {
       text_id: diagCurrentText.id,
       difficulty_score: Number(diagCurrentText.difficulty_score) || diagCurrentDifficulty,
       summary,
       quiz_accuracy: summary.quiz_accuracy,
       passage_performance: Number(performance.toFixed(3)),
+      adult_observations: { ...diagAdultObservation },
       completed_ts: endedAt,
     };
 
@@ -768,6 +841,19 @@ function App() {
       ...diagPassageResults,
       [languageCode]: [...(diagPassageResults[languageCode] || []), passageResult],
     };
+
+    if (diagRunId && diagToken) {
+      try {
+        await saveDiagnosticAdultObservation(diagRunId, {
+          token: diagToken,
+          language: languageCode,
+          passage_index: passageIndex,
+          adult_observations: passageResult.adult_observations,
+        });
+      } catch (error) {
+        console.warn('[ukraine] Could not persist intermediate adult observation:', error);
+      }
+    }
 
     setDiagPassageResults(updatedPerLanguage);
     setDiagCurrentText(null);
@@ -794,6 +880,7 @@ function App() {
     await finalizeDiagnosticRun(updatedPerLanguage);
   }, [
     beginDiagnosticPassage,
+    diagAdultObservation,
     diagCurrentDifficulty,
     diagCurrentLanguage,
     diagCurrentText,
@@ -802,7 +889,9 @@ function App() {
     diagPassageResults,
     diagPassagesPerLanguage,
     diagQuestionsPerPassage,
+    diagRunId,
     diagStartingSkillByLanguage,
+    diagToken,
     diagTextPools,
     diagUsedTextIds,
     finalizeDiagnosticRun,
@@ -842,13 +931,14 @@ function App() {
 
     window.setTimeout(async () => {
       if (diagQuizIndex + 1 >= questions.length) {
-        await finishDiagnosticPassage();
+        setDiagQuizLocked(false);
+        setDiagStatus('observation');
       } else {
         setDiagQuizIndex((prev) => prev + 1);
         setDiagQuizLocked(false);
       }
     }, 220);
-  }, [diagCurrentText, diagQuestionsPerPassage, diagQuizIndex, diagQuizLocked, diagStatus, finishDiagnosticPassage]);
+  }, [diagCurrentText, diagQuestionsPerPassage, diagQuizIndex, diagQuizLocked, diagStatus]);
 
   const handleDiagnosticWordTap = useCallback((word) => {
     if (!word || !diagMetricsRef.current) {
@@ -959,41 +1049,80 @@ function App() {
     }
   }, [beginDiagnosticPassage, diagToken, isOnline, profiles.ru, profiles.uk]);
 
-  const handleUnlockSubmit = useCallback(async (event) => {
+  const handleParentLoginSubmit = useCallback(async (event) => {
     event.preventDefault();
-    if (!unlockPassword.trim()) {
-      setUnlockError('Enter password.');
+    if (!parentPin.trim()) {
+      setParentPinError('Enter PIN.');
       return;
     }
 
-    setUnlockBusy(true);
-    setUnlockError('');
+    setParentPinBusy(true);
+    setParentPinError('');
 
     try {
-      await unlockApp(unlockPassword.trim());
-      setUnlockPassword('');
-      setUnlocked(true);
-      setStatusMessage('Unlocked.');
+      await loginParent(parentPin.trim());
+      setParentPin('');
+      setParentAuthed(true);
       await refreshProfilesFromServer();
-      void flushQueue();
     } catch (error) {
       if (error.status === 429) {
         const retry = Number(error.data?.retry_after_sec) || 600;
-        setUnlockError(`Too many attempts. Try again in ${Math.ceil(retry / 60)} min.`);
+        setParentPinError(`Too many attempts. Try again in ${Math.ceil(retry / 60)} min.`);
       } else if (error.status === 401) {
         const remaining = error.data?.attempts_remaining;
         if (Number.isFinite(remaining)) {
-          setUnlockError(`Wrong password. ${remaining} attempts left.`);
+          setParentPinError(`Wrong PIN. ${remaining} attempts left.`);
         } else {
-          setUnlockError('Wrong password.');
+          setParentPinError('Wrong PIN.');
         }
       } else {
-        setUnlockError('Unlock failed. Check connection and try again.');
+        setParentPinError('PIN check failed. Try again.');
       }
     } finally {
-      setUnlockBusy(false);
+      setParentPinBusy(false);
     }
-  }, [flushQueue, refreshProfilesFromServer, unlockPassword]);
+  }, [parentPin, refreshProfilesFromServer]);
+
+  const handleParentLogout = useCallback(async () => {
+    try {
+      await logoutParent();
+    } catch {
+      // Ignore network errors; clear local parent state anyway.
+    }
+
+    setParentAuthed(false);
+    setParentPin('');
+    setParentPinError('');
+    setRoute('home');
+    setPlayScreen('home');
+    setLocationSearch('');
+    window.history.pushState({}, '', `${BASE_PATH}/`);
+  }, []);
+
+  const handleSaveSettings = useCallback(async () => {
+    if (!parentAuthed) {
+      return;
+    }
+
+    setSettingsBusy(true);
+    setSettingsStatus('');
+
+    try {
+      const response = await updateChildSettings(childSettings);
+      const next = normalizeChildSettings(response?.settings || childSettings);
+      setChildSettings(next);
+      setSettingsStatus('Settings saved.');
+    } catch (error) {
+      if (error.status === 401) {
+        setParentAuthed(false);
+        setParentPinError('Parent session expired. Enter PIN again.');
+      } else {
+        setSettingsStatus('Could not save settings.');
+      }
+    } finally {
+      setSettingsBusy(false);
+    }
+  }, [childSettings, parentAuthed]);
 
   const handleExport = useCallback(async () => {
     try {
@@ -1008,8 +1137,8 @@ function App() {
       URL.revokeObjectURL(url);
     } catch (error) {
       if (error.status === 401) {
-        setUnlocked(false);
-        setUnlockError('Session expired. Enter password again.');
+        setParentAuthed(false);
+        setParentPinError('Parent session expired. Enter PIN again.');
       } else {
         setStatusMessage('Could not export profile right now.');
       }
@@ -1034,8 +1163,8 @@ function App() {
       });
     } catch (error) {
       if (error.status === 401) {
-        setUnlocked(false);
-        setUnlockError('Session expired. Enter password again.');
+        setParentAuthed(false);
+        setParentPinError('Parent session expired. Enter PIN again.');
       }
       setDiagnosticLinkError('Could not create link right now.');
     } finally {
@@ -1055,22 +1184,6 @@ function App() {
       setDiagnosticLinkCopied('Copy failed');
     }
   }, [diagnosticLink]);
-
-  const handleLogout = useCallback(async () => {
-    try {
-      await logoutApp();
-    } catch {
-      // Ignore network errors here; local lock state is still reset.
-    }
-
-    setUnlocked(false);
-    setUnlockPassword('');
-    setUnlockError('');
-    setPlayScreen('home');
-    setRoute('home');
-    setLocationSearch('');
-    window.history.pushState({}, '', `${BASE_PATH}/`);
-  }, []);
 
   useEffect(() => {
     const onPopState = () => {
@@ -1102,10 +1215,10 @@ function App() {
   }, [flushQueue]);
 
   useEffect(() => {
-    if (unlocked && isOnline) {
+    if (isOnline) {
       void flushQueue();
     }
-  }, [flushQueue, isOnline, unlocked]);
+  }, [flushQueue, isOnline]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1119,11 +1232,12 @@ function App() {
         uk: toPublicProfile(normalizeProfile(cachedUkProfile || defaultProfile('uk'), 'uk'), 'uk'),
       };
 
-      const [cachedRuTexts, cachedUkTexts, queue, storedProgress] = await Promise.all([
+      const [cachedRuTexts, cachedUkTexts, queue, storedProgress, remoteSettings] = await Promise.all([
         getTextsByLanguage('ru'),
         getTextsByLanguage('uk'),
         listQueuedSessions(),
         getMeta(TODAY_META_KEY),
+        fetchChildSettings().catch(() => ({ settings: DEFAULT_CHILD_SETTINGS })),
       ]);
 
       if (cancelled) {
@@ -1133,6 +1247,7 @@ function App() {
       setProfiles(mergedProfiles);
       setTextsByLanguage({ ru: cachedRuTexts, uk: cachedUkTexts });
       setPendingQueueCount(queue.length);
+      setChildSettings(normalizeChildSettings(remoteSettings?.settings || DEFAULT_CHILD_SETTINGS));
 
       const todayKey = getTodayKey();
       if (storedProgress && storedProgress.key === todayKey) {
@@ -1144,25 +1259,29 @@ function App() {
       }
 
       try {
-        const auth = await getAuthStatus();
+        await Promise.all([
+          loadTextsForLanguage('ru', mergedProfiles.ru.skill_level),
+          loadTextsForLanguage('uk', mergedProfiles.uk.skill_level),
+        ]);
+        await flushQueue();
+      } catch (error) {
+        console.warn('[ukraine] Initial data warmup failed:', error);
+      }
 
+      try {
+        const auth = await getParentAuthStatus();
         if (!cancelled) {
-          setUnlocked(Boolean(auth?.unlocked));
+          setParentAuthed(Boolean(auth?.authenticated));
         }
 
-        if (auth?.unlocked) {
+        if (auth?.authenticated) {
           await refreshProfilesFromServer();
-          await Promise.all([
-            loadTextsForLanguage('ru', mergedProfiles.ru.skill_level),
-            loadTextsForLanguage('uk', mergedProfiles.uk.skill_level),
-          ]);
-          await flushQueue();
         }
       } catch (error) {
-        console.warn('[ukraine] Auth status check failed:', error);
+        console.warn('[ukraine] Parent auth status check failed:', error);
       } finally {
         if (!cancelled) {
-          setAuthReady(true);
+          setAppReady(true);
         }
       }
     }
@@ -1270,36 +1389,16 @@ function App() {
     }
   }, [dailyTarget, saveTodayProgress, todayProgress.key]);
 
-  if (!authReady) {
+  useEffect(() => {
+    if (childSettings.language_schedule !== 'both' && scheduledLanguage && language !== scheduledLanguage) {
+      setLanguage(scheduledLanguage);
+    }
+  }, [childSettings.language_schedule, language, scheduledLanguage]);
+
+  if (!appReady) {
     return (
       <div className="page-wrap">
         <div className="card loading-card">Preparing reading app...</div>
-      </div>
-    );
-  }
-
-  if (route !== 'diagnostic' && !unlocked) {
-    return (
-      <div className="page-wrap">
-        <form className="card unlock-card" onSubmit={handleUnlockSubmit}>
-          <h1 className="title">Ukraine Reading</h1>
-          <p className="subtitle">Enter app password to continue.</p>
-          <input
-            type="text"
-            inputMode="text"
-            autoCapitalize="off"
-            autoCorrect="off"
-            value={unlockPassword}
-            onChange={(event) => setUnlockPassword(event.target.value)}
-            placeholder="Password"
-            className="input"
-          />
-          {unlockError && <p className="error-text">{unlockError}</p>}
-          <button type="submit" className="primary-btn" disabled={unlockBusy}>
-            {unlockBusy ? 'Checking...' : 'Unlock'}
-          </button>
-          <p className="hint-text">Password stays visible while typing for easier child entry.</p>
-        </form>
       </div>
     );
   }
@@ -1323,11 +1422,9 @@ function App() {
               </p>
             </div>
             <div className="top-bar-actions">
-              {unlocked && (
-                <button className="ghost-btn" onClick={() => navigate('home')}>
-                  Back to Home
-                </button>
-              )}
+              <button className="ghost-btn" onClick={() => navigate('home')}>
+                Back to Home
+              </button>
             </div>
           </header>
 
@@ -1458,6 +1555,95 @@ function App() {
               </div>
             )}
 
+            {diagStatus === 'observation' && (
+              <div className="diagnostic-stage">
+                <h2>Adult Checkpoint</h2>
+                <p>Quickly mark how this passage went before continuing.</p>
+
+                <div className="observation-grid">
+                  <div className="observation-row">
+                    <strong>Hesitations</strong>
+                    <div className="choices-grid">
+                      {[
+                        ['none', 'None'],
+                        ['some', 'Some'],
+                        ['many', 'Many'],
+                      ].map(([value, label]) => (
+                        <button
+                          key={`obs-hes-${value}`}
+                          className={`choice-btn ${diagAdultObservation.hesitation_level === value ? 'selected' : ''}`}
+                          onClick={() => setDiagAdultObservation((prev) => ({ ...prev, hesitation_level: value }))}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="observation-row">
+                    <strong>Decoding Help</strong>
+                    <div className="choices-grid">
+                      {[
+                        ['none', 'None'],
+                        ['some', 'Some'],
+                        ['frequent', 'Frequent'],
+                      ].map(([value, label]) => (
+                        <button
+                          key={`obs-help-${value}`}
+                          className={`choice-btn ${diagAdultObservation.decoding_support === value ? 'selected' : ''}`}
+                          onClick={() => setDiagAdultObservation((prev) => ({ ...prev, decoding_support: value }))}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="observation-row">
+                    <strong>Confidence</strong>
+                    <div className="choices-grid">
+                      {[
+                        ['high', 'High'],
+                        ['medium', 'Medium'],
+                        ['low', 'Low'],
+                      ].map(([value, label]) => (
+                        <button
+                          key={`obs-confidence-${value}`}
+                          className={`choice-btn ${diagAdultObservation.confidence === value ? 'selected' : ''}`}
+                          onClick={() => setDiagAdultObservation((prev) => ({ ...prev, confidence: value }))}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="observation-row">
+                    <strong>Attention</strong>
+                    <div className="choices-grid">
+                      {[
+                        ['steady', 'Steady'],
+                        ['mixed', 'Mixed'],
+                        ['wandering', 'Wandering'],
+                      ].map(([value, label]) => (
+                        <button
+                          key={`obs-attention-${value}`}
+                          className={`choice-btn ${diagAdultObservation.attention === value ? 'selected' : ''}`}
+                          onClick={() => setDiagAdultObservation((prev) => ({ ...prev, attention: value }))}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <button className="primary-btn" onClick={() => void finishDiagnosticPassage()}>
+                  Continue
+                </button>
+              </div>
+            )}
+
             {diagStatus === 'finishing' && (
               <div className="diagnostic-stage">
                 <h2>Finishing Diagnostic</h2>
@@ -1485,7 +1671,7 @@ function App() {
                   })}
                 </div>
 
-                {unlocked && (
+                {parentAuthed && (
                   <button className="primary-btn" onClick={() => navigate('profile')}>
                     View Profile
                   </button>
@@ -1510,82 +1696,197 @@ function App() {
               Queue: {pendingQueueCount}
               {' | '}
               {syncing ? 'Syncing...' : 'Idle'}
+              {' | '}
+              {childSettings.language_schedule === 'both'
+                ? `Language: ${language === 'uk' ? 'Ukrainian' : 'Russian'}`
+                : `Today: ${activeLanguage === 'uk' ? 'Ukrainian' : 'Russian'}`}
             </p>
           </div>
           <div className="top-bar-actions">
-            <button className="ghost-btn" onClick={() => navigate(route === 'profile' ? 'home' : 'profile')}>
-              {route === 'profile' ? 'Back to Today' : 'Profile'}
-            </button>
-            <button className="ghost-btn" onClick={handleLogout}>Lock</button>
+            {route === 'profile' ? (
+              <button className="ghost-btn" onClick={() => navigate('home')}>
+                Back to Child
+              </button>
+            ) : (
+              <button className="ghost-btn" onClick={() => navigate('profile')}>
+                Parent Area
+              </button>
+            )}
+            {route === 'profile' && parentAuthed && (
+              <button className="ghost-btn" onClick={() => void handleParentLogout()}>
+                Parent Logout
+              </button>
+            )}
           </div>
         </header>
 
         {statusMessage && <p className="status-text">{statusMessage}</p>}
 
         {route === 'profile' ? (
-          <section className="content-card profile-layout">
-            <div className="profile-grid">
-              {['ru', 'uk'].map((lang) => {
-                const profile = normalizeProfile(profiles[lang], lang);
-                return (
-                  <article key={lang} className="profile-card">
-                    <h2>{lang === 'ru' ? 'Russian (RU)' : 'Ukrainian (UK)'}</h2>
-                    <p><strong>Skill:</strong> {profile.skill_level.toFixed(2)}</p>
-                    <p><strong>Confidence:</strong> {(profile.confidence * 100).toFixed(0)}%</p>
-                    <p><strong>Bottleneck:</strong> {profile.bottleneck}</p>
-                    <p><strong>Comfort band:</strong> {formatBand(profile.comfort_band)}</p>
-                    <p><strong>Instructional band:</strong> {formatBand(profile.instructional_band)}</p>
-                    <p><strong>Trend 7d:</strong> {profile.trend_7d.toFixed(2)}</p>
-                    <p><strong>Trend 30d:</strong> {profile.trend_30d.toFixed(2)}</p>
-                    <p><strong>Suggested text types:</strong> {(profile.recommended?.text_types || []).join(', ')}</p>
-                    <p><strong>Suggested activities:</strong> {(profile.recommended?.activities || []).join(', ')}</p>
-                  </article>
-                );
-              })}
-            </div>
-
-            <div className="profile-actions profile-actions-wrap">
-              <button className="ghost-btn" onClick={() => void handleCreateDiagnosticLink()} disabled={diagnosticLinkBusy}>
-                {diagnosticLinkBusy ? 'Creating Link...' : 'Create Diagnostic Link'}
-              </button>
-              <button className="primary-btn" onClick={handleExport}>Export JSON</button>
-            </div>
-
-            {diagnosticLinkError && <p className="error-text">{diagnosticLinkError}</p>}
-
-            {diagnosticLink?.url && (
-              <article className="diagnostic-link-card">
-                <h3>Diagnostic URL</h3>
-                <p><strong>Expires:</strong> {formatTimestamp(diagnosticLink.expiresTs)}</p>
-                <input className="input" type="text" readOnly value={diagnosticLink.url} />
-                <div className="diagnostic-link-actions">
-                  <button className="ghost-btn" onClick={() => void handleCopyDiagnosticLink()}>Copy</button>
-                  {diagnosticLinkCopied && <span className="hint-text">{diagnosticLinkCopied}</span>}
+          parentAuthed ? (
+            <section className="content-card profile-layout">
+              <article className="profile-card settings-card">
+                <h3>Child Settings</h3>
+                <p><strong>Schedule:</strong> {childSettings.language_schedule}</p>
+                <div className="language-toggle" role="tablist" aria-label="Language schedule">
+                  <button
+                    className={`toggle-btn ${childSettings.language_schedule === 'alternate' ? 'active' : ''}`}
+                    onClick={() => setChildSettings((prev) => ({ ...prev, language_schedule: 'alternate' }))}
+                  >
+                    Alternate
+                  </button>
+                  <button
+                    className={`toggle-btn ${childSettings.language_schedule === 'both' ? 'active' : ''}`}
+                    onClick={() => setChildSettings((prev) => ({ ...prev, language_schedule: 'both' }))}
+                  >
+                    Both Daily
+                  </button>
+                  <button
+                    className={`toggle-btn ${childSettings.language_schedule === 'single' ? 'active' : ''}`}
+                    onClick={() => setChildSettings((prev) => ({ ...prev, language_schedule: 'single' }))}
+                  >
+                    Single
+                  </button>
                 </div>
+
+                {childSettings.language_schedule === 'alternate' && (
+                  <>
+                    <p><strong>Alternate Start:</strong> {childSettings.alternate_start_language === 'uk' ? 'Ukrainian' : 'Russian'}</p>
+                    <div className="language-toggle">
+                      <button
+                        className={`toggle-btn ${childSettings.alternate_start_language === 'ru' ? 'active' : ''}`}
+                        onClick={() => setChildSettings((prev) => ({ ...prev, alternate_start_language: 'ru' }))}
+                      >
+                        Start RU
+                      </button>
+                      <button
+                        className={`toggle-btn ${childSettings.alternate_start_language === 'uk' ? 'active' : ''}`}
+                        onClick={() => setChildSettings((prev) => ({ ...prev, alternate_start_language: 'uk' }))}
+                      >
+                        Start UK
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {childSettings.language_schedule === 'single' && (
+                  <>
+                    <p><strong>Single Language:</strong> {childSettings.single_language === 'uk' ? 'Ukrainian' : 'Russian'}</p>
+                    <div className="language-toggle">
+                      <button
+                        className={`toggle-btn ${childSettings.single_language === 'ru' ? 'active' : ''}`}
+                        onClick={() => setChildSettings((prev) => ({ ...prev, single_language: 'ru' }))}
+                      >
+                        Russian
+                      </button>
+                      <button
+                        className={`toggle-btn ${childSettings.single_language === 'uk' ? 'active' : ''}`}
+                        onClick={() => setChildSettings((prev) => ({ ...prev, single_language: 'uk' }))}
+                      >
+                        Ukrainian
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                <div className="profile-actions">
+                  <button className="primary-btn" onClick={() => void handleSaveSettings()} disabled={settingsBusy}>
+                    {settingsBusy ? 'Saving...' : 'Save Settings'}
+                  </button>
+                </div>
+                {settingsStatus && <p className="hint-text">{settingsStatus}</p>}
               </article>
-            )}
-          </section>
+
+              <div className="profile-grid">
+                {['ru', 'uk'].map((lang) => {
+                  const profile = normalizeProfile(profiles[lang], lang);
+                  return (
+                    <article key={lang} className="profile-card">
+                      <h2>{lang === 'ru' ? 'Russian (RU)' : 'Ukrainian (UK)'}</h2>
+                      <p><strong>Skill:</strong> {profile.skill_level.toFixed(2)}</p>
+                      <p><strong>Confidence:</strong> {(profile.confidence * 100).toFixed(0)}%</p>
+                      <p><strong>Bottleneck:</strong> {profile.bottleneck}</p>
+                      <p><strong>Comfort band:</strong> {formatBand(profile.comfort_band)}</p>
+                      <p><strong>Instructional band:</strong> {formatBand(profile.instructional_band)}</p>
+                      <p><strong>Trend 7d:</strong> {profile.trend_7d.toFixed(2)}</p>
+                      <p><strong>Trend 30d:</strong> {profile.trend_30d.toFixed(2)}</p>
+                      <p><strong>Suggested text types:</strong> {(profile.recommended?.text_types || []).join(', ')}</p>
+                      <p><strong>Suggested activities:</strong> {(profile.recommended?.activities || []).join(', ')}</p>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <div className="profile-actions profile-actions-wrap">
+                <button className="ghost-btn" onClick={() => void handleCreateDiagnosticLink()} disabled={diagnosticLinkBusy}>
+                  {diagnosticLinkBusy ? 'Creating Link...' : 'Create Diagnostic Link'}
+                </button>
+                <button className="primary-btn" onClick={handleExport}>Export JSON</button>
+              </div>
+
+              {diagnosticLinkError && <p className="error-text">{diagnosticLinkError}</p>}
+
+              {diagnosticLink?.url && (
+                <article className="diagnostic-link-card">
+                  <h3>Diagnostic URL</h3>
+                  <p><strong>Expires:</strong> {formatTimestamp(diagnosticLink.expiresTs)}</p>
+                  <input className="input" type="text" readOnly value={diagnosticLink.url} />
+                  <div className="diagnostic-link-actions">
+                    <button className="ghost-btn" onClick={() => void handleCopyDiagnosticLink()}>Copy</button>
+                    {diagnosticLinkCopied && <span className="hint-text">{diagnosticLinkCopied}</span>}
+                  </div>
+                </article>
+              )}
+            </section>
+          ) : (
+            <section className="content-card">
+              <form className="card unlock-card parent-pin-card" onSubmit={handleParentLoginSubmit}>
+                <h2 className="title">Parent PIN</h2>
+                <p className="subtitle">Enter parent PIN to open diagnostics, profile, and settings.</p>
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  value={parentPin}
+                  onChange={(event) => setParentPin(event.target.value)}
+                  placeholder="PIN"
+                  className="input"
+                />
+                {(parentPinError || settingsStatus) && <p className="error-text">{parentPinError || settingsStatus}</p>}
+                <button type="submit" className="primary-btn" disabled={parentPinBusy}>
+                  {parentPinBusy ? 'Checking...' : 'Unlock Parent Area'}
+                </button>
+              </form>
+            </section>
+          )
         ) : (
           <section className="content-card">
             {playScreen === 'home' && (
               <div className="home-layout">
                 <h2>Today</h2>
-                <p>Pick language and finish daily reading challenges.</p>
+                <p>
+                  {childSettings.language_schedule === 'both'
+                    ? 'Pick language and finish a daily challenge.'
+                    : `Today is ${activeLanguage === 'uk' ? 'Ukrainian' : 'Russian'} day. Press start.`}
+                </p>
 
-                <div className="language-toggle" role="tablist" aria-label="Language">
-                  <button
-                    className={`toggle-btn ${language === 'ru' ? 'active' : ''}`}
-                    onClick={() => setLanguage('ru')}
-                  >
-                    Russian
-                  </button>
-                  <button
-                    className={`toggle-btn ${language === 'uk' ? 'active' : ''}`}
-                    onClick={() => setLanguage('uk')}
-                  >
-                    Ukrainian
-                  </button>
-                </div>
+                {childSettings.language_schedule === 'both' && (
+                  <div className="language-toggle" role="tablist" aria-label="Language">
+                    <button
+                      className={`toggle-btn ${language === 'ru' ? 'active' : ''}`}
+                      onClick={() => setLanguage('ru')}
+                    >
+                      Russian
+                    </button>
+                    <button
+                      className={`toggle-btn ${language === 'uk' ? 'active' : ''}`}
+                      onClick={() => setLanguage('uk')}
+                    >
+                      Ukrainian
+                    </button>
+                  </div>
+                )}
 
                 <ChallengeDots done={todayProgress.done} target={Math.max(todayProgress.target, dailyTarget)} />
 

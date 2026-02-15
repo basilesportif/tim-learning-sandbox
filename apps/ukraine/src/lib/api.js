@@ -47,6 +47,32 @@ export function logoutApp() {
   return request('/auth/logout', { method: 'POST', body: JSON.stringify({}) });
 }
 
+export function getParentAuthStatus() {
+  return request('/parent/auth/status', { method: 'GET' });
+}
+
+export function loginParent(pin) {
+  return request('/parent/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ pin }),
+  });
+}
+
+export function logoutParent() {
+  return request('/parent/auth/logout', { method: 'POST', body: JSON.stringify({}) });
+}
+
+export function fetchChildSettings() {
+  return request('/child/settings', { method: 'GET' });
+}
+
+export function updateChildSettings(payload) {
+  return request('/child/settings', {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
+}
+
 export function fetchTexts(language, options = {}) {
   const params = new URLSearchParams();
   params.set('language', language);
@@ -140,6 +166,13 @@ export function completeDiagnosticRun(runId, token, perLanguageResults) {
       token,
       per_language_results: perLanguageResults,
     }),
+  });
+}
+
+export function saveDiagnosticAdultObservation(runId, payload) {
+  return request(`/diagnostics/runs/${encodeURIComponent(runId)}/adult-observations`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
   });
 }
 

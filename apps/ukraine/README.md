@@ -1,16 +1,42 @@
-# React + Vite
+# Ukraine Reader
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Bilingual (Russian + Ukrainian) child reading app with:
+- Child-first daily reading flow
+- Parent-gated diagnostics and profile tools
+- Adaptive text difficulty and progress profiling
+- Offline queueing for session sync
 
-Currently, two official plugins are available:
+## Parent PIN
+Set this on the server before production use:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+export UKRAINE_PARENT_PIN="your-pin"
+```
 
-## React Compiler
+Legacy app password endpoint still exists for compatibility:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+export UKRAINE_APP_PASSWORD="your-password"
+```
 
-## Expanding the ESLint configuration
+## Child Schedule Settings
+Parent area can configure daily language schedule:
+- `alternate` (default)
+- `both`
+- `single`
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Diagnostic
+Parent can create one-time diagnostic links from Parent Area.
+Diagnostic captures:
+- passage reading behavior
+- comprehension quiz accuracy
+- adult observation checkpoint per passage
+
+## Development
+
+```bash
+npm install
+npm run dev
+npm run lint
+npm run build
+```

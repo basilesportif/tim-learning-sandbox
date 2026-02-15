@@ -19,6 +19,11 @@ const UKRAINE_PASSWORD = process.env.UKRAINE_APP_PASSWORD || 'tim-learning';
 const UKRAINE_MAX_ATTEMPTS = 5;
 const UKRAINE_BLOCK_MS = 10 * 60 * 1000;
 const UKRAINE_UNLOCK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const UKRAINE_PARENT_COOKIE_NAME = 'ukraine_parent';
+const UKRAINE_PARENT_PIN = process.env.UKRAINE_PARENT_PIN || '2468';
+const UKRAINE_PARENT_MAX_ATTEMPTS = 6;
+const UKRAINE_PARENT_BLOCK_MS = 10 * 60 * 1000;
+const UKRAINE_PARENT_TTL_MS = 12 * 60 * 60 * 1000;
 const DIAGNOSTIC_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const DIAGNOSTIC_DEFAULT_MAX_USES = 1;
 const DIAGNOSTIC_RATE_WINDOW_MS = 15 * 60 * 1000;
@@ -28,10 +33,15 @@ const DIAGNOSTIC_QUESTIONS_PER_PASSAGE = 2;
 
 const unlockSessions = new Map();
 const unlockAttempts = new Map();
+const parentSessions = new Map();
+const parentAttempts = new Map();
 const diagnosticRateLimits = new Map();
 
 if (!process.env.UKRAINE_APP_PASSWORD) {
   console.warn('[ukraine] UKRAINE_APP_PASSWORD is not set. Using development fallback password.');
+}
+if (!process.env.UKRAINE_PARENT_PIN) {
+  console.warn('[ukraine] UKRAINE_PARENT_PIN is not set. Using development fallback PIN.');
 }
 
 setInterval(() => {
@@ -46,6 +56,18 @@ setInterval(() => {
   for (const [ip, state] of unlockAttempts.entries()) {
     if ((state.blockedUntil || 0) <= now && (state.lastFailureAt || 0) + UKRAINE_BLOCK_MS <= now) {
       unlockAttempts.delete(ip);
+    }
+  }
+
+  for (const [token, expiresAt] of parentSessions.entries()) {
+    if (expiresAt <= now) {
+      parentSessions.delete(token);
+    }
+  }
+
+  for (const [ip, state] of parentAttempts.entries()) {
+    if ((state.blockedUntil || 0) <= now && (state.lastFailureAt || 0) + UKRAINE_PARENT_BLOCK_MS <= now) {
+      parentAttempts.delete(ip);
     }
   }
 
@@ -200,6 +222,36 @@ function getDefaultProfile(language) {
     },
     history: [],
     updated_ts: new Date().toISOString(),
+  };
+}
+
+function getDefaultChildSettings() {
+  return {
+    language_schedule: 'alternate',
+    single_language: 'ru',
+    alternate_start_language: 'ru',
+    updated_ts: nowIso(),
+  };
+}
+
+function normalizeChildSettings(settings, options = {}) {
+  const raw = settings && typeof settings === 'object' ? settings : {};
+  const fallback = getDefaultChildSettings();
+  const merged = { ...fallback, ...raw };
+  const schedule = ['alternate', 'single', 'both'].includes(merged.language_schedule)
+    ? merged.language_schedule
+    : fallback.language_schedule;
+  const singleLanguage = normalizeLanguage(merged.single_language);
+  const alternateStartLanguage = normalizeLanguage(merged.alternate_start_language);
+  const updatedTs = options.touch
+    ? nowIso()
+    : (typeof merged.updated_ts === 'string' && merged.updated_ts ? merged.updated_ts : nowIso());
+
+  return {
+    language_schedule: schedule,
+    single_language: singleLanguage,
+    alternate_start_language: alternateStartLanguage,
+    updated_ts: updatedTs,
   };
 }
 
@@ -380,6 +432,30 @@ function normalizeSummary(summary) {
   };
 }
 
+function normalizeAdultObservations(observations) {
+  const safe = observations && typeof observations === 'object' ? observations : {};
+
+  const hesitationLevel = ['none', 'some', 'many'].includes(safe.hesitation_level)
+    ? safe.hesitation_level
+    : 'none';
+  const decodingSupport = ['none', 'some', 'frequent'].includes(safe.decoding_support)
+    ? safe.decoding_support
+    : 'none';
+  const confidence = ['high', 'medium', 'low'].includes(safe.confidence)
+    ? safe.confidence
+    : 'high';
+  const attention = ['steady', 'mixed', 'wandering'].includes(safe.attention)
+    ? safe.attention
+    : 'steady';
+
+  return {
+    hesitation_level: hesitationLevel,
+    decoding_support: decodingSupport,
+    confidence,
+    attention,
+  };
+}
+
 function updateProfileFromSummary(profile, summary, endTs) {
   const normalized = normalizeSummary(summary);
   const oldSkill = Number(profile.skill_level) || 25;
@@ -498,7 +574,34 @@ function computeDiagnosticPassagePerformance(passage) {
     ? summary.quiz_accuracy
     : clamp(Number(passage?.quiz_accuracy) || 0, 0, 1);
   const behavior = scoreBehavior(summary);
-  return clamp((comprehension * 0.7) + (behavior * 0.3), 0, 1);
+  const observations = normalizeAdultObservations(passage?.adult_observations || {});
+
+  let observationPenalty = 0;
+  if (observations.hesitation_level === 'some') {
+    observationPenalty += 0.04;
+  } else if (observations.hesitation_level === 'many') {
+    observationPenalty += 0.1;
+  }
+
+  if (observations.decoding_support === 'some') {
+    observationPenalty += 0.06;
+  } else if (observations.decoding_support === 'frequent') {
+    observationPenalty += 0.14;
+  }
+
+  if (observations.confidence === 'medium') {
+    observationPenalty += 0.03;
+  } else if (observations.confidence === 'low') {
+    observationPenalty += 0.08;
+  }
+
+  if (observations.attention === 'mixed') {
+    observationPenalty += 0.03;
+  } else if (observations.attention === 'wandering') {
+    observationPenalty += 0.08;
+  }
+
+  return clamp(((comprehension * 0.7) + (behavior * 0.3)) - observationPenalty, 0, 1);
 }
 
 function updateProfileFromDiagnostic(profile, language, languageResult, endTs) {
@@ -608,12 +711,43 @@ function requireUkraineUnlock(req, res, next) {
   res.status(401).json({ error: 'locked' });
 }
 
+function isUkraineParentAuthed(req) {
+  const cookies = parseCookies(req);
+  const token = cookies[UKRAINE_PARENT_COOKIE_NAME];
+
+  if (!token) {
+    return false;
+  }
+
+  const expiresAt = parentSessions.get(token);
+  if (!expiresAt) {
+    return false;
+  }
+
+  if (expiresAt <= Date.now()) {
+    parentSessions.delete(token);
+    return false;
+  }
+
+  return true;
+}
+
+function requireUkraineParent(req, res, next) {
+  if (isUkraineParentAuthed(req)) {
+    next();
+    return;
+  }
+
+  res.status(401).json({ error: 'parent_locked' });
+}
+
 function setupUkraineApiRoutes(appName, dataPath) {
   const ruTextsPath = join(dataPath, 'texts.ru.json');
   const ukTextsPath = join(dataPath, 'texts.uk.json');
   const sessionsPath = join(dataPath, 'sessions.json');
   const eventsPath = join(dataPath, 'events.json');
   const profilesPath = join(dataPath, 'profiles.json');
+  const childSettingsPath = join(dataPath, 'child_settings.json');
   const diagnosticLinksPath = join(dataPath, 'diagnostic_links.json');
   const diagnosticRunsPath = join(dataPath, 'diagnostic_runs.json');
 
@@ -626,6 +760,7 @@ function setupUkraineApiRoutes(appName, dataPath) {
     uk: getDefaultProfile('uk'),
     updated_ts: new Date().toISOString(),
   });
+  ensureJsonFile(childSettingsPath, getDefaultChildSettings());
   ensureJsonFile(diagnosticLinksPath, []);
   ensureJsonFile(diagnosticRunsPath, []);
 
@@ -643,6 +778,14 @@ function setupUkraineApiRoutes(appName, dataPath) {
 
   function writeDiagnosticRuns(runs) {
     writeJson(diagnosticRunsPath, asArray(runs));
+  }
+
+  function readChildSettings() {
+    return normalizeChildSettings(readJson(childSettingsPath, getDefaultChildSettings()));
+  }
+
+  function writeChildSettings(settings) {
+    writeJson(childSettingsPath, normalizeChildSettings(settings, { touch: true }));
   }
 
   function getDiagnosticLinkByTokenHash(tokenHash) {
@@ -739,7 +882,76 @@ function setupUkraineApiRoutes(appName, dataPath) {
     res.json({ success: true });
   });
 
-  app.post(`/${appName}/api/diagnostics/links`, requireUkraineUnlock, (req, res) => {
+  app.get(`/${appName}/api/parent/auth/status`, (req, res) => {
+    res.json({ authenticated: isUkraineParentAuthed(req) });
+  });
+
+  app.post(`/${appName}/api/parent/auth/login`, (req, res) => {
+    const ip = getClientIp(req);
+    const now = Date.now();
+    const state = parentAttempts.get(ip) || { failures: 0, blockedUntil: 0, lastFailureAt: 0 };
+
+    if (state.blockedUntil > now) {
+      const retryAfterSec = Math.ceil((state.blockedUntil - now) / 1000);
+      res.status(429).json({ error: 'rate_limited', retry_after_sec: retryAfterSec });
+      return;
+    }
+
+    const submittedPin = typeof req.body?.pin === 'string' ? req.body.pin.trim() : '';
+    if (!submittedPin || submittedPin !== UKRAINE_PARENT_PIN) {
+      state.failures += 1;
+      state.lastFailureAt = now;
+
+      if (state.failures >= UKRAINE_PARENT_MAX_ATTEMPTS) {
+        state.failures = 0;
+        state.blockedUntil = now + UKRAINE_PARENT_BLOCK_MS;
+        parentAttempts.set(ip, state);
+        res.status(429).json({ error: 'rate_limited', retry_after_sec: Math.ceil(UKRAINE_PARENT_BLOCK_MS / 1000) });
+        return;
+      }
+
+      parentAttempts.set(ip, state);
+      res.status(401).json({ error: 'invalid_pin', attempts_remaining: UKRAINE_PARENT_MAX_ATTEMPTS - state.failures });
+      return;
+    }
+
+    parentAttempts.delete(ip);
+
+    const token = crypto.randomBytes(24).toString('hex');
+    const expiresAt = now + UKRAINE_PARENT_TTL_MS;
+    parentSessions.set(token, expiresAt);
+
+    const maxAgeSec = Math.floor(UKRAINE_PARENT_TTL_MS / 1000);
+    const secureFlag = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    const cookieValue = `${UKRAINE_PARENT_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secureFlag}`;
+    res.setHeader('Set-Cookie', cookieValue);
+    res.json({ success: true, authenticated_until: new Date(expiresAt).toISOString() });
+  });
+
+  app.post(`/${appName}/api/parent/auth/logout`, (req, res) => {
+    const token = parseCookies(req)[UKRAINE_PARENT_COOKIE_NAME];
+    if (token) {
+      parentSessions.delete(token);
+    }
+
+    const secureFlag = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+    const cookieValue = `${UKRAINE_PARENT_COOKIE_NAME}=; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag}`;
+    res.setHeader('Set-Cookie', cookieValue);
+    res.json({ success: true });
+  });
+
+  app.get(`/${appName}/api/child/settings`, (_req, res) => {
+    res.json({ settings: readChildSettings() });
+  });
+
+  app.post(`/${appName}/api/child/settings`, requireUkraineParent, (req, res) => {
+    const current = readChildSettings();
+    const merged = normalizeChildSettings({ ...current, ...(req.body || {}) }, { touch: true });
+    writeChildSettings(merged);
+    res.json({ settings: merged });
+  });
+
+  app.post(`/${appName}/api/diagnostics/links`, requireUkraineParent, (req, res) => {
     const nowMs = Date.now();
     const token = createOpaqueToken();
     const tokenHash = hashToken(token);
@@ -972,6 +1184,73 @@ function setupUkraineApiRoutes(appName, dataPath) {
     });
   });
 
+  app.post(`/${appName}/api/diagnostics/runs/:runId/adult-observations`, (req, res) => {
+    const ip = getClientIp(req);
+    const rate = applyRateLimit(diagnosticRateLimits, ip, DIAGNOSTIC_RATE_LIMIT, DIAGNOSTIC_RATE_WINDOW_MS);
+    if (rate.limited) {
+      res.status(429).json({ error: 'rate_limited', retry_after_sec: rate.retryAfterSec });
+      return;
+    }
+
+    const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+    if (!token) {
+      res.status(400).json({ error: 'token_required' });
+      return;
+    }
+
+    const runId = req.params.runId;
+    let runs = readDiagnosticRuns();
+    const runIndex = runs.findIndex((run) => run.run_id === runId);
+    if (runIndex < 0) {
+      res.status(404).json({ error: 'run_not_found' });
+      return;
+    }
+
+    const run = runs[runIndex];
+    const tokenHash = hashToken(token);
+    if (run.token_hash !== tokenHash) {
+      res.status(403).json({ error: 'invalid_token' });
+      return;
+    }
+
+    if (run.completed) {
+      res.status(409).json({ error: 'run_completed' });
+      return;
+    }
+
+    const language = normalizeLanguage(req.body?.language);
+    const passageIndex = Math.max(0, Math.floor(Number(req.body?.passage_index) || 0));
+    const adultObservations = normalizeAdultObservations(req.body?.adult_observations || {});
+
+    const nextPerLanguage = run.per_language && typeof run.per_language === 'object'
+      ? { ...run.per_language }
+      : {};
+    const languageBucket = nextPerLanguage[language] && typeof nextPerLanguage[language] === 'object'
+      ? { ...nextPerLanguage[language] }
+      : {};
+    const observations = Array.isArray(languageBucket.adult_observations)
+      ? [...languageBucket.adult_observations]
+      : [];
+    observations[passageIndex] = adultObservations;
+    languageBucket.adult_observations = observations;
+    nextPerLanguage[language] = languageBucket;
+
+    runs[runIndex] = {
+      ...run,
+      per_language: nextPerLanguage,
+      updated_ts: nowIso(),
+    };
+    writeDiagnosticRuns(runs);
+
+    res.json({
+      success: true,
+      run_id: runId,
+      language,
+      passage_index: passageIndex,
+      adult_observations: adultObservations,
+    });
+  });
+
   app.post(`/${appName}/api/diagnostics/runs/:runId/complete`, (req, res) => {
     const ip = getClientIp(req);
     const rate = applyRateLimit(diagnosticRateLimits, ip, DIAGNOSTIC_RATE_LIMIT, DIAGNOSTIC_RATE_WINDOW_MS);
@@ -1034,9 +1313,16 @@ function setupUkraineApiRoutes(appName, dataPath) {
 
     for (const language of normalizeDiagnosticLanguages(run.languages)) {
       const previousProfile = ensureProfileShape(profiles[language], language);
-      const languageResult = inputPerLanguage[language] && typeof inputPerLanguage[language] === 'object'
+      const rawLanguageResult = inputPerLanguage[language] && typeof inputPerLanguage[language] === 'object'
         ? inputPerLanguage[language]
         : { passages: [] };
+      const languageResult = {
+        ...rawLanguageResult,
+        passages: asArray(rawLanguageResult.passages).map((passage) => ({
+          ...passage,
+          adult_observations: normalizeAdultObservations(passage?.adult_observations || {}),
+        })),
+      };
       const nextProfile = updateProfileFromDiagnostic(previousProfile, language, languageResult, completedTs);
 
       profiles[language] = nextProfile;
@@ -1048,6 +1334,8 @@ function setupUkraineApiRoutes(appName, dataPath) {
         bottleneck: nextProfile.bottleneck,
         passages_count: asArray(languageResult.passages).length,
       };
+
+      inputPerLanguage[language] = languageResult;
     }
 
     profiles.updated_ts = completedTs;
@@ -1090,7 +1378,7 @@ function setupUkraineApiRoutes(appName, dataPath) {
     });
   });
 
-  app.get(`/${appName}/api/texts`, requireUkraineUnlock, (req, res) => {
+  app.get(`/${appName}/api/texts`, (req, res) => {
     const language = req.query.language === 'uk' ? 'uk' : 'ru';
     const min = req.query.min !== undefined ? Number(req.query.min) : null;
     const max = req.query.max !== undefined ? Number(req.query.max) : null;
@@ -1111,7 +1399,7 @@ function setupUkraineApiRoutes(appName, dataPath) {
     res.json({ texts });
   });
 
-  app.get(`/${appName}/api/texts/:id`, requireUkraineUnlock, (req, res) => {
+  app.get(`/${appName}/api/texts/:id`, (req, res) => {
     const id = req.params.id;
 
     const ruTexts = readJson(ruTextsPath, []);
@@ -1126,7 +1414,7 @@ function setupUkraineApiRoutes(appName, dataPath) {
     res.json(text);
   });
 
-  app.post(`/${appName}/api/sessions/start`, requireUkraineUnlock, (req, res) => {
+  app.post(`/${appName}/api/sessions/start`, (req, res) => {
     const body = req.body || {};
     const clientSessionId = typeof body.client_session_id === 'string' && body.client_session_id.trim()
       ? body.client_session_id.trim()
@@ -1170,7 +1458,7 @@ function setupUkraineApiRoutes(appName, dataPath) {
     res.json({ session_id: sessionId, started_at: startTs, reused: false });
   });
 
-  app.post(`/${appName}/api/sessions/:id/events/batch`, requireUkraineUnlock, (req, res) => {
+  app.post(`/${appName}/api/sessions/:id/events/batch`, (req, res) => {
     const sessionId = req.params.id;
     const sessions = readJson(sessionsPath, []);
     const sessionExists = sessions.some((session) => session.session_id === sessionId);
@@ -1203,7 +1491,7 @@ function setupUkraineApiRoutes(appName, dataPath) {
     });
   });
 
-  app.post(`/${appName}/api/sessions/:id/end`, requireUkraineUnlock, (req, res) => {
+  app.post(`/${appName}/api/sessions/:id/end`, (req, res) => {
     const sessionId = req.params.id;
     const body = req.body || {};
 
@@ -1267,7 +1555,7 @@ function setupUkraineApiRoutes(appName, dataPath) {
     });
   });
 
-  app.get(`/${appName}/api/profile`, requireUkraineUnlock, (req, res) => {
+  app.get(`/${appName}/api/profile`, requireUkraineParent, (req, res) => {
     const language = req.query.language === 'uk' ? 'uk' : 'ru';
     const profiles = readJson(profilesPath, {
       ru: getDefaultProfile('ru'),
@@ -1279,7 +1567,7 @@ function setupUkraineApiRoutes(appName, dataPath) {
     res.json(sanitizeProfile(shaped));
   });
 
-  app.get(`/${appName}/api/recommendations`, requireUkraineUnlock, (req, res) => {
+  app.get(`/${appName}/api/recommendations`, requireUkraineParent, (req, res) => {
     const language = req.query.language === 'uk' ? 'uk' : 'ru';
     const profiles = readJson(profilesPath, {
       ru: getDefaultProfile('ru'),
@@ -1291,7 +1579,7 @@ function setupUkraineApiRoutes(appName, dataPath) {
     res.json({ recommended: shaped.recommended });
   });
 
-  app.get(`/${appName}/api/export/profile.json`, requireUkraineUnlock, (req, res) => {
+  app.get(`/${appName}/api/export/profile.json`, requireUkraineParent, (req, res) => {
     const profiles = readJson(profilesPath, {
       ru: getDefaultProfile('ru'),
       uk: getDefaultProfile('uk'),
