@@ -1,0 +1,41 @@
+.answer-choices {
+  height: 100%;
+  display: grid;
+  grid-template-rows: repeat(3, minmax(72px, 1fr));
+  gap: clamp(10px, 1.9vh, 20px);
+}
+
+.answer-button {
+  width: 100%;
+  min-height: 72px;
+  border: none;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #ffffff, #dff2ff);
+  box-shadow: 0 4px 10px rgba(8, 32, 51, 0.09);
+  color: #082033;
+  font-size: clamp(2rem, 8vmin, 3.6rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+}
+
+.answer-button:hover {
+  box-shadow: 0 8px 20px rgba(8, 32, 51, 0.16);
+}
+
+.answer-button:active {
+  transform: scale(0.99);
+}
+
+.answer-button:focus-visible {
+  outline: 3px solid #1294d8;
+  outline-offset: 3px;
+}
+
+.answer-button:disabled {
+  cursor: not-allowed;
+  filter: saturate(0.35);
+  box-shadow: 0 2px 8px rgba(8, 32, 51, 0.08);
+}

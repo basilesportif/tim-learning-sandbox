@@ -1,0 +1,127 @@
+:root {
+  --panel-bg: rgba(255, 255, 255, 0.74);
+  --panel-border: rgba(9, 32, 51, 0.12);
+  --text-main: #082033;
+  --text-soft: #2d5e7a;
+}
+
+.app-shell {
+  min-height: 100vh;
+  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 2vh, 24px);
+  padding-top: calc(10px + env(safe-area-inset-top));
+  padding-right: calc(14px + env(safe-area-inset-right));
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  padding-left: calc(14px + env(safe-area-inset-left));
+  background:
+    radial-gradient(140% 120% at 8% 0%, #ffffff 0%, #eef8ff 45%, #d6eefb 100%),
+    linear-gradient(135deg, #ddf2fc, #eff9ff);
+  color: var(--text-main);
+  overflow: hidden;
+}
+
+.quickmath-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.quickmath-title {
+  margin: 0;
+  font-size: clamp(1.5rem, 3.8vw, 2.6rem);
+  letter-spacing: 0.03em;
+  text-transform: lowercase;
+  line-height: 1;
+}
+
+.quickmath-subtitle {
+  margin: 0;
+  font-size: clamp(0.92rem, 2vw, 1.2rem);
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+.practice-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  gap: clamp(12px, 2vh, 24px);
+}
+
+.problem-panel,
+.choices-panel {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 24px;
+  padding: clamp(12px, 2.4vw, 24px);
+  min-height: 0;
+}
+
+.problem-panel {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(10px, 2vh, 18px);
+}
+
+.practice-help {
+  margin: 0;
+  text-align: center;
+  font-size: clamp(0.95rem, 2.2vw, 1.2rem);
+  font-weight: 650;
+  color: var(--text-soft);
+}
+
+.feedback-slot {
+  min-height: clamp(90px, 16vh, 160px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.feedback-placeholder {
+  margin: 0;
+  text-align: center;
+  color: #4f788f;
+  font-size: clamp(0.9rem, 2.1vw, 1.08rem);
+  font-weight: 600;
+}
+
+.choices-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+@media (orientation: portrait) {
+  .quickmath-header {
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .practice-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+  }
+}
+
+@media (orientation: landscape) {
+  .practice-layout {
+    grid-template-columns: minmax(290px, 44%) 1fr;
+    grid-template-rows: 1fr;
+    align-items: stretch;
+  }
+}
+
+@media (max-width: 840px) {
+  .problem-panel,
+  .choices-panel {
+    border-radius: 18px;
+  }
+}

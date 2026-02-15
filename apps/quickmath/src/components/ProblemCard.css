@@ -1,0 +1,27 @@
+.problem-card {
+  border-radius: 20px;
+  padding: clamp(14px, 2vw, 22px);
+  background: rgba(235, 247, 255, 0.9);
+  border: 1px solid rgba(9, 32, 51, 0.1);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.problem-label {
+  margin: 0;
+  color: #2f627f;
+  font-size: clamp(0.9rem, 1.9vw, 1.06rem);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.problem-text {
+  margin: 0;
+  font-size: clamp(2.2rem, 11vmin, 5rem);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}

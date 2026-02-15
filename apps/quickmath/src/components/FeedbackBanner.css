@@ -1,0 +1,29 @@
+.feedback-banner {
+  width: 100%;
+  border-radius: 18px;
+  border: 1px solid rgba(9, 32, 51, 0.1);
+  padding: clamp(10px, 1.8vw, 18px);
+  text-align: center;
+}
+
+.feedback-banner.success {
+  background: rgba(202, 249, 224, 0.82);
+}
+
+.feedback-banner.error {
+  background: rgba(255, 226, 214, 0.88);
+}
+
+.feedback-message {
+  margin: 0;
+  font-size: clamp(1.1rem, 2.8vw, 1.7rem);
+  font-weight: 800;
+}
+
+.feedback-time {
+  margin: 4px 0 0;
+  color: #274f67;
+  font-size: clamp(0.95rem, 2.1vw, 1.15rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
