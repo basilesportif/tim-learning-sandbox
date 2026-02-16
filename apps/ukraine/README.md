@@ -32,6 +32,23 @@ Diagnostic captures:
 - comprehension quiz accuracy
 - adult observation checkpoint per passage
 
+## Open Source Text Pipeline
+Parent Area now includes source ingestion + review controls.
+
+- Sync endpoint (parent-gated): `POST /ukraine/api/admin/sources/sync`
+- Status endpoint (parent-gated): `GET /ukraine/api/admin/sources/status`
+- Review queue (parent-gated):
+  - `GET /ukraine/api/admin/sources/review-queue`
+  - `POST /ukraine/api/admin/sources/review-queue/:reviewId`
+
+Current provider implementation: **Global Digital Library (GDL)**.
+
+New records are not auto-published. They enter `source_review_queue.json` as `pending` and must be approved.
+
+Data files:
+- `apps/ukraine/data/source_review_queue.json`
+- `apps/ukraine/data/source_sync_log.json`
+
 ## Development
 
 ```bash
@@ -39,4 +56,10 @@ npm install
 npm run dev
 npm run lint
 npm run build
+```
+
+Run a manual source sync from repo root:
+
+```bash
+npm run sync:ukraine:sources -- --languages ru,uk --per-language-limit 6
 ```

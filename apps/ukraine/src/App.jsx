@@ -6,15 +6,19 @@ import {
   downloadProfileExport,
   endSession,
   fetchDiagnosticTexts,
+  fetchSourceAdminStatus,
+  fetchSourceReviewQueue,
   fetchChildSettings,
   fetchProfile,
   fetchTexts,
   getParentAuthStatus,
   loginParent,
   logoutParent,
+  reviewSourceCandidate,
   resolveDiagnosticToken,
   saveDiagnosticAdultObservation,
   sendSessionEvents,
+  syncSourceCandidates,
   startDiagnosticRun,
   startSession,
   updateChildSettings,
@@ -272,6 +276,12 @@ function App() {
   const [childSettings, setChildSettings] = useState(DEFAULT_CHILD_SETTINGS);
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState('');
+  const [sourceStatus, setSourceStatus] = useState(null);
+  const [sourceQueue, setSourceQueue] = useState([]);
+  const [sourceSyncBusy, setSourceSyncBusy] = useState(false);
+  const [sourceQueueBusy, setSourceQueueBusy] = useState(false);
+  const [sourceActionBusyId, setSourceActionBusyId] = useState('');
+  const [sourceStatusMessage, setSourceStatusMessage] = useState('');
 
   const [route, setRoute] = useState(() => getRouteFromPathname(window.location.pathname));
   const [locationSearch, setLocationSearch] = useState(window.location.search);
@@ -1124,6 +1134,88 @@ function App() {
     }
   }, [childSettings, parentAuthed]);
 
+  const refreshSourceAdmin = useCallback(async () => {
+    if (!parentAuthed) {
+      return;
+    }
+
+    setSourceQueueBusy(true);
+    try {
+      const [statusRes, queueRes] = await Promise.all([
+        fetchSourceAdminStatus(),
+        fetchSourceReviewQueue({ status: 'pending', limit: 20 }),
+      ]);
+      setSourceStatus(statusRes || null);
+      setSourceQueue(Array.isArray(queueRes?.items) ? queueRes.items : []);
+    } catch (error) {
+      if (error.status === 401) {
+        setParentAuthed(false);
+        setParentPinError('Parent session expired. Enter PIN again.');
+      } else {
+        setSourceStatusMessage('Could not refresh source admin data.');
+      }
+    } finally {
+      setSourceQueueBusy(false);
+    }
+  }, [parentAuthed]);
+
+  const handleSyncSources = useCallback(async () => {
+    if (!parentAuthed) {
+      return;
+    }
+
+    setSourceSyncBusy(true);
+    setSourceStatusMessage('');
+    try {
+      const response = await syncSourceCandidates({
+        source: 'gdl',
+        languages: ['ru', 'uk'],
+        per_language_limit: 6,
+        min_words: 18,
+        max_words: 180,
+        dry_run: false,
+      });
+      const added = Number(response?.added) || 0;
+      setSourceStatusMessage(`Sync complete. Added ${added} new candidate${added === 1 ? '' : 's'} to review queue.`);
+      await refreshSourceAdmin();
+    } catch (error) {
+      if (error.status === 401) {
+        setParentAuthed(false);
+        setParentPinError('Parent session expired. Enter PIN again.');
+      } else {
+        setSourceStatusMessage('Source sync failed.');
+      }
+    } finally {
+      setSourceSyncBusy(false);
+    }
+  }, [parentAuthed, refreshSourceAdmin]);
+
+  const handleReviewSourceItem = useCallback(async (reviewId, action) => {
+    if (!reviewId || !['approve', 'reject'].includes(action)) {
+      return;
+    }
+
+    setSourceActionBusyId(reviewId);
+    setSourceStatusMessage('');
+    try {
+      await reviewSourceCandidate(reviewId, { action });
+      setSourceStatusMessage(action === 'approve' ? 'Candidate approved.' : 'Candidate rejected.');
+      await refreshSourceAdmin();
+    } catch (error) {
+      if (error.status === 401) {
+        setParentAuthed(false);
+        setParentPinError('Parent session expired. Enter PIN again.');
+      } else if (error.status === 409) {
+        setSourceStatusMessage('Candidate is no longer pending.');
+        await refreshSourceAdmin();
+      } else {
+        setSourceStatusMessage('Could not update review item.');
+      }
+    } finally {
+      setSourceActionBusyId('');
+    }
+  }, [refreshSourceAdmin]);
+
   const handleExport = useCallback(async () => {
     try {
       const blob = await downloadProfileExport();
@@ -1394,6 +1486,12 @@ function App() {
       setLanguage(scheduledLanguage);
     }
   }, [childSettings.language_schedule, language, scheduledLanguage]);
+
+  useEffect(() => {
+    if (route === 'profile' && parentAuthed) {
+      void refreshSourceAdmin();
+    }
+  }, [parentAuthed, refreshSourceAdmin, route]);
 
   if (!appReady) {
     return (
@@ -1795,6 +1893,70 @@ function App() {
                   </button>
                 </div>
                 {settingsStatus && <p className="hint-text">{settingsStatus}</p>}
+              </article>
+
+              <article className="profile-card settings-card">
+                <h3>Open Text Sources</h3>
+                <p>Run source sync and review new candidate texts before publishing.</p>
+                <p>
+                  <strong>Pending:</strong> {sourceStatus?.queue_counts?.pending ?? 0}
+                  {' | '}
+                  <strong>Imported:</strong> {sourceStatus?.imported_text_count ?? 0}
+                </p>
+                {sourceStatus?.last_run && (
+                  <p>
+                    <strong>Last Sync:</strong> {formatTimestamp(sourceStatus.last_run.completed_ts || sourceStatus.last_run.started_ts)}
+                    {' | '}
+                    Added {sourceStatus.last_run.added || 0}
+                  </p>
+                )}
+
+                <div className="profile-actions profile-actions-wrap">
+                  <button className="ghost-btn" onClick={() => void refreshSourceAdmin()} disabled={sourceQueueBusy}>
+                    {sourceQueueBusy ? 'Refreshing...' : 'Refresh Queue'}
+                  </button>
+                  <button className="primary-btn" onClick={() => void handleSyncSources()} disabled={sourceSyncBusy || !isOnline}>
+                    {sourceSyncBusy ? 'Syncing...' : 'Sync GDL Sources'}
+                  </button>
+                </div>
+
+                {sourceStatusMessage && <p className="hint-text">{sourceStatusMessage}</p>}
+
+                {sourceQueue.length > 0 ? (
+                  <div className="source-review-list">
+                    {sourceQueue.slice(0, 6).map((item) => (
+                      <article key={item.review_id} className="source-review-item">
+                        <h4>{item.title}</h4>
+                        <p>
+                          <strong>{item.language === 'uk' ? 'Ukrainian' : 'Russian'}</strong>
+                          {' | '}
+                          {item.source_name}
+                          {' | '}
+                          Difficulty {Number(item.difficulty_score || 0).toFixed(1)}
+                        </p>
+                        <p>{Array.isArray(item.paragraphs) ? item.paragraphs[0] : ''}</p>
+                        <div className="profile-actions profile-actions-wrap">
+                          <button
+                            className="primary-btn"
+                            onClick={() => void handleReviewSourceItem(item.review_id, 'approve')}
+                            disabled={sourceActionBusyId === item.review_id}
+                          >
+                            Approve
+                          </button>
+                          <button
+                            className="ghost-btn"
+                            onClick={() => void handleReviewSourceItem(item.review_id, 'reject')}
+                            disabled={sourceActionBusyId === item.review_id}
+                          >
+                            Reject
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="hint-text">No pending candidates in review queue.</p>
+                )}
               </article>
 
               <div className="profile-grid">

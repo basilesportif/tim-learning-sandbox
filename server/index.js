@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import { SOURCE_SYNC_DEFAULTS, syncGdlCandidates } from './ukraine_sources.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -30,6 +31,7 @@ const DIAGNOSTIC_RATE_WINDOW_MS = 15 * 60 * 1000;
 const DIAGNOSTIC_RATE_LIMIT = 30;
 const DIAGNOSTIC_PASSAGES_PER_LANGUAGE = 3;
 const DIAGNOSTIC_QUESTIONS_PER_PASSAGE = 2;
+const SOURCE_SYNC_LOG_LIMIT = 200;
 
 const unlockSessions = new Map();
 const unlockAttempts = new Map();
@@ -456,6 +458,97 @@ function normalizeAdultObservations(observations) {
   };
 }
 
+function normalizeQuizItem(item, language, index = 0) {
+  const safe = item && typeof item === 'object' ? item : {};
+  const prompt = typeof safe.prompt === 'string' && safe.prompt.trim()
+    ? safe.prompt.trim()
+    : (language === 'uk' ? `Питання ${index + 1}` : `Вопрос ${index + 1}`);
+  const rawChoices = asArray(safe.choices)
+    .map((choice) => (typeof choice === 'string' ? choice.trim() : ''))
+    .filter(Boolean)
+    .slice(0, 4);
+  const fallbackChoices = language === 'uk'
+    ? ['Правильна відповідь', 'Відповідь 2', 'Відповідь 3', 'Відповідь 4']
+    : ['Правильный ответ', 'Ответ 2', 'Ответ 3', 'Ответ 4'];
+  const choices = rawChoices.length >= 2
+    ? rawChoices
+    : fallbackChoices;
+
+  let answerIndex = Number(safe.answer_index);
+  if (!Number.isFinite(answerIndex) || answerIndex < 0 || answerIndex >= choices.length) {
+    answerIndex = 0;
+  }
+
+  return {
+    id: typeof safe.id === 'string' && safe.id.trim()
+      ? safe.id.trim()
+      : `quiz_${Date.now()}_${index}_${crypto.randomBytes(2).toString('hex')}`,
+    type: 'choice',
+    prompt,
+    choices,
+    answer_index: answerIndex,
+  };
+}
+
+function normalizeTextRecord(record) {
+  const safe = record && typeof record === 'object' ? record : {};
+  const language = safe.language === 'uk' ? 'uk' : 'ru';
+  const paragraphs = asArray(safe.paragraphs)
+    .map((paragraph) => (typeof paragraph === 'string' ? paragraph.trim() : ''))
+    .filter(Boolean)
+    .slice(0, 4);
+  const quiz = asArray(safe.quiz).map((item, index) => normalizeQuizItem(item, language, index)).slice(0, 4);
+
+  const fallbackQuiz = language === 'uk'
+    ? [
+      {
+        id: `auto_q1_${crypto.randomBytes(2).toString('hex')}`,
+        type: 'choice',
+        prompt: 'Яка назва цього тексту?',
+        choices: [safe.title || 'Текст', 'Інша назва', 'Невідомо', 'Пропуск'],
+        answer_index: 0,
+      },
+      {
+        id: `auto_q2_${crypto.randomBytes(2).toString('hex')}`,
+        type: 'choice',
+        prompt: 'Що варто зробити після читання?',
+        choices: ['Коротко переказати текст', 'Пропустити питання', 'Не згадувати зміст', 'Одразу закрити сторінку'],
+        answer_index: 0,
+      },
+    ]
+    : [
+      {
+        id: `auto_q1_${crypto.randomBytes(2).toString('hex')}`,
+        type: 'choice',
+        prompt: 'Как называется этот текст?',
+        choices: [safe.title || 'Текст', 'Другое название', 'Неизвестно', 'Пропуск'],
+        answer_index: 0,
+      },
+      {
+        id: `auto_q2_${crypto.randomBytes(2).toString('hex')}`,
+        type: 'choice',
+        prompt: 'Что полезно сделать после чтения?',
+        choices: ['Коротко пересказать текст', 'Пропустить вопросы', 'Не вспоминать содержание', 'Сразу закрыть страницу'],
+        answer_index: 0,
+      },
+    ];
+
+  return {
+    id: typeof safe.id === 'string' && safe.id.trim() ? safe.id.trim() : `txt_${Date.now()}_${crypto.randomBytes(3).toString('hex')}`,
+    language,
+    title: typeof safe.title === 'string' && safe.title.trim() ? safe.title.trim() : (language === 'uk' ? 'Новий текст' : 'Новый текст'),
+    difficulty_score: clamp(Number(safe.difficulty_score) || 25, 0, 100),
+    tags: asArray(safe.tags).filter((tag) => typeof tag === 'string').slice(0, 12),
+    paragraphs,
+    quiz: quiz.length >= 2 ? quiz : fallbackQuiz,
+    source: typeof safe.source === 'string' && safe.source.trim() ? safe.source.trim() : 'unknown_source',
+    license: typeof safe.license === 'string' && safe.license.trim() ? safe.license.trim() : 'unknown_license',
+    source_key: typeof safe.source_key === 'string' && safe.source_key.trim() ? safe.source_key.trim() : null,
+    source_url: typeof safe.source_url === 'string' && safe.source_url.trim() ? safe.source_url.trim() : null,
+    attribution: safe.attribution && typeof safe.attribution === 'object' ? safe.attribution : {},
+  };
+}
+
 function updateProfileFromSummary(profile, summary, endTs) {
   const normalized = normalizeSummary(summary);
   const oldSkill = Number(profile.skill_level) || 25;
@@ -748,6 +841,8 @@ function setupUkraineApiRoutes(appName, dataPath) {
   const eventsPath = join(dataPath, 'events.json');
   const profilesPath = join(dataPath, 'profiles.json');
   const childSettingsPath = join(dataPath, 'child_settings.json');
+  const sourceReviewQueuePath = join(dataPath, 'source_review_queue.json');
+  const sourceSyncLogPath = join(dataPath, 'source_sync_log.json');
   const diagnosticLinksPath = join(dataPath, 'diagnostic_links.json');
   const diagnosticRunsPath = join(dataPath, 'diagnostic_runs.json');
 
@@ -761,6 +856,8 @@ function setupUkraineApiRoutes(appName, dataPath) {
     updated_ts: new Date().toISOString(),
   });
   ensureJsonFile(childSettingsPath, getDefaultChildSettings());
+  ensureJsonFile(sourceReviewQueuePath, []);
+  ensureJsonFile(sourceSyncLogPath, []);
   ensureJsonFile(diagnosticLinksPath, []);
   ensureJsonFile(diagnosticRunsPath, []);
 
@@ -778,6 +875,23 @@ function setupUkraineApiRoutes(appName, dataPath) {
 
   function writeDiagnosticRuns(runs) {
     writeJson(diagnosticRunsPath, asArray(runs));
+  }
+
+  function readSourceReviewQueue() {
+    return asArray(readJson(sourceReviewQueuePath, []));
+  }
+
+  function writeSourceReviewQueue(queue) {
+    writeJson(sourceReviewQueuePath, asArray(queue));
+  }
+
+  function readSourceSyncLog() {
+    return asArray(readJson(sourceSyncLogPath, []));
+  }
+
+  function writeSourceSyncLog(log) {
+    const normalized = asArray(log).slice(-SOURCE_SYNC_LOG_LIMIT);
+    writeJson(sourceSyncLogPath, normalized);
   }
 
   function readChildSettings() {
@@ -949,6 +1063,218 @@ function setupUkraineApiRoutes(appName, dataPath) {
     const merged = normalizeChildSettings({ ...current, ...(req.body || {}) }, { touch: true });
     writeChildSettings(merged);
     res.json({ settings: merged });
+  });
+
+  app.get(`/${appName}/api/admin/sources/status`, requireUkraineParent, (_req, res) => {
+    const queue = readSourceReviewQueue();
+    const log = readSourceSyncLog();
+    const ruTexts = asArray(readJson(ruTextsPath, []));
+    const ukTexts = asArray(readJson(ukTextsPath, []));
+    const allTexts = [...ruTexts, ...ukTexts];
+
+    const queueCounts = {
+      pending: queue.filter((item) => item.status === 'pending').length,
+      approved: queue.filter((item) => item.status === 'approved').length,
+      rejected: queue.filter((item) => item.status === 'rejected').length,
+    };
+
+    const bySource = {};
+    for (const text of allTexts) {
+      const source = typeof text.source === 'string' ? text.source : 'unknown_source';
+      bySource[source] = (bySource[source] || 0) + 1;
+    }
+
+    const importedCount = allTexts.filter((text) => {
+      const source = typeof text.source === 'string' ? text.source : '';
+      return source && source !== 'curated_local_mvp';
+    }).length;
+
+    res.json({
+      queue_counts: queueCounts,
+      total_texts: {
+        ru: ruTexts.length,
+        uk: ukTexts.length,
+      },
+      imported_text_count: importedCount,
+      by_source: bySource,
+      last_run: log.length > 0 ? log[log.length - 1] : null,
+      recent_runs: log.slice(-10),
+    });
+  });
+
+  app.get(`/${appName}/api/admin/sources/review-queue`, requireUkraineParent, (req, res) => {
+    const statusFilter = typeof req.query?.status === 'string' ? req.query.status.trim() : '';
+    const languageFilter = req.query?.language === 'uk' ? 'uk' : (req.query?.language === 'ru' ? 'ru' : '');
+    const limit = Math.max(1, Math.min(200, Number(req.query?.limit) || 50));
+
+    let queue = readSourceReviewQueue();
+    if (statusFilter) {
+      queue = queue.filter((item) => item.status === statusFilter);
+    }
+    if (languageFilter) {
+      queue = queue.filter((item) => item.language === languageFilter);
+    }
+
+    const sorted = queue
+      .slice()
+      .sort((a, b) => new Date(b.updated_ts || b.created_ts || 0).getTime() - new Date(a.updated_ts || a.created_ts || 0).getTime())
+      .slice(0, limit);
+
+    res.json({ items: sorted, total: queue.length });
+  });
+
+  app.post(`/${appName}/api/admin/sources/sync`, requireUkraineParent, async (req, res) => {
+    const source = req.body?.source === 'gdl' ? 'gdl' : SOURCE_SYNC_DEFAULTS.source;
+    const requestedLanguages = asArray(req.body?.languages).map((item) => (item === 'uk' ? 'uk' : 'ru'));
+    const languages = requestedLanguages.length > 0
+      ? [...new Set(requestedLanguages)].slice(0, 2)
+      : SOURCE_SYNC_DEFAULTS.languages;
+    const perLanguageLimit = Math.max(1, Math.min(30, Number(req.body?.per_language_limit) || SOURCE_SYNC_DEFAULTS.per_language_limit));
+    const minWords = Math.max(8, Math.min(120, Number(req.body?.min_words) || SOURCE_SYNC_DEFAULTS.min_words));
+    const maxWords = Math.max(minWords, Math.min(420, Number(req.body?.max_words) || SOURCE_SYNC_DEFAULTS.max_words));
+    const dryRun = Boolean(req.body?.dry_run);
+    const previewLimit = Math.max(1, Math.min(50, Number(req.body?.preview_limit) || 20));
+
+    const queue = readSourceReviewQueue();
+    const ruTexts = asArray(readJson(ruTextsPath, []));
+    const ukTexts = asArray(readJson(ukTextsPath, []));
+
+    const existingSourceKeys = new Set();
+    for (const item of queue) {
+      if (typeof item.source_key === 'string' && item.source_key) {
+        existingSourceKeys.add(item.source_key);
+      }
+    }
+    for (const text of [...ruTexts, ...ukTexts]) {
+      if (typeof text.source_key === 'string' && text.source_key) {
+        existingSourceKeys.add(text.source_key);
+      }
+    }
+
+    let syncResult;
+    try {
+      syncResult = await syncGdlCandidates({
+        source,
+        languages,
+        per_language_limit: perLanguageLimit,
+        min_words: minWords,
+        max_words: maxWords,
+        dry_run: dryRun,
+        existing_source_keys: existingSourceKeys,
+      });
+    } catch (error) {
+      res.status(500).json({
+        error: 'sync_failed',
+        message: error.message,
+      });
+      return;
+    }
+
+    const log = readSourceSyncLog();
+    log.push(syncResult.run);
+    writeSourceSyncLog(log);
+
+    if (!dryRun && syncResult.candidates.length > 0) {
+      const mergedQueue = [...queue, ...syncResult.candidates];
+      writeSourceReviewQueue(mergedQueue);
+    }
+
+    res.json({
+      run: syncResult.run,
+      dry_run: dryRun,
+      added: syncResult.candidates.length,
+      candidates: syncResult.candidates.slice(0, previewLimit),
+    });
+  });
+
+  app.post(`/${appName}/api/admin/sources/review-queue/:reviewId`, requireUkraineParent, (req, res) => {
+    const reviewId = typeof req.params.reviewId === 'string' ? req.params.reviewId : '';
+    const action = typeof req.body?.action === 'string' ? req.body.action.trim() : '';
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    const edits = req.body?.edits && typeof req.body.edits === 'object' ? req.body.edits : {};
+
+    if (!reviewId) {
+      res.status(400).json({ error: 'review_id_required' });
+      return;
+    }
+
+    if (!['approve', 'reject'].includes(action)) {
+      res.status(400).json({ error: 'invalid_action' });
+      return;
+    }
+
+    const queue = readSourceReviewQueue();
+    const index = queue.findIndex((item) => item.review_id === reviewId);
+    if (index < 0) {
+      res.status(404).json({ error: 'review_item_not_found' });
+      return;
+    }
+
+    const current = queue[index];
+    if (current.status !== 'pending') {
+      res.status(409).json({ error: 'review_item_not_pending' });
+      return;
+    }
+
+    if (action === 'reject') {
+      queue[index] = {
+        ...current,
+        status: 'rejected',
+        rejection_reason: reason || null,
+        updated_ts: nowIso(),
+      };
+      writeSourceReviewQueue(queue);
+      res.json({ success: true, item: queue[index] });
+      return;
+    }
+
+    const merged = {
+      ...current,
+      ...(edits || {}),
+      language: current.language === 'uk' ? 'uk' : 'ru',
+      source_key: current.source_key,
+      source: current.source,
+      license: current.license,
+      source_url: current.source_url,
+      attribution: current.attribution,
+    };
+
+    const textRecord = normalizeTextRecord(merged);
+    if (textRecord.paragraphs.length === 0) {
+      res.status(400).json({ error: 'text_requires_paragraphs' });
+      return;
+    }
+
+    const targetPath = textRecord.language === 'uk' ? ukTextsPath : ruTextsPath;
+    const existing = asArray(readJson(targetPath, []));
+
+    if (textRecord.source_key && existing.some((item) => item.source_key === textRecord.source_key)) {
+      res.status(409).json({ error: 'duplicate_source_key' });
+      return;
+    }
+
+    let uniqueId = textRecord.id;
+    while (existing.some((item) => item.id === uniqueId)) {
+      uniqueId = `${textRecord.id}-${crypto.randomBytes(2).toString('hex')}`;
+    }
+    textRecord.id = uniqueId;
+
+    existing.push(textRecord);
+    writeJson(targetPath, existing);
+
+    queue[index] = {
+      ...current,
+      status: 'approved',
+      approved_text_id: textRecord.id,
+      updated_ts: nowIso(),
+    };
+    writeSourceReviewQueue(queue);
+
+    res.json({
+      success: true,
+      item: queue[index],
+      approved_text: textRecord,
+    });
   });
 
   app.post(`/${appName}/api/diagnostics/links`, requireUkraineParent, (req, res) => {

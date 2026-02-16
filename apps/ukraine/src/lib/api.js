@@ -176,6 +176,40 @@ export function saveDiagnosticAdultObservation(runId, payload) {
   });
 }
 
+export function fetchSourceAdminStatus() {
+  return request('/admin/sources/status', { method: 'GET' });
+}
+
+export function fetchSourceReviewQueue(options = {}) {
+  const params = new URLSearchParams();
+  if (options.status) {
+    params.set('status', String(options.status));
+  }
+  if (options.language) {
+    params.set('language', String(options.language));
+  }
+  if (options.limit !== undefined && options.limit !== null) {
+    params.set('limit', String(options.limit));
+  }
+
+  const query = params.toString();
+  return request(`/admin/sources/review-queue${query ? `?${query}` : ''}`, { method: 'GET' });
+}
+
+export function syncSourceCandidates(payload = {}) {
+  return request('/admin/sources/sync', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function reviewSourceCandidate(reviewId, payload = {}) {
+  return request(`/admin/sources/review-queue/${encodeURIComponent(reviewId)}`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function downloadProfileExport() {
   const res = await fetch(`${API_ROOT}/export/profile.json`, {
     method: 'GET',

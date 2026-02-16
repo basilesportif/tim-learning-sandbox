@@ -371,6 +371,28 @@
   border-color: #bcd6ed;
 }
 
+.source-review-list {
+  display: grid;
+  gap: 10px;
+}
+
+.source-review-item {
+  border: 1px solid #c8dbec;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 10px;
+}
+
+.source-review-item h4 {
+  margin: 0 0 6px;
+  color: #1f3b56;
+}
+
+.source-review-item p {
+  margin: 4px 0;
+  color: #38526a;
+}
+
 .parent-pin-card {
   margin: 0 auto;
   width: min(560px, 100%);
