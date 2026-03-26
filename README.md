@@ -41,6 +41,7 @@ Server environment:
 - `CLERK_PUBLISHABLE_KEY`
 - `CLERK_SECRET_KEY`
 - `VOCAB_ADMIN_EMAILS`
+- `VOCAB_CHILD_EMAILS`
 - `OPENAI_API_KEY`
 
 Frontend environment for the Vite app:

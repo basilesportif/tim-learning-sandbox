@@ -157,7 +157,7 @@ async function safeGetUser(userId) {
   }
 }
 
-async function listChildUsers(adminEmails) {
+async function listChildUsers(adminEmails, childEmails) {
   const clerk = getClerkClient();
   if (!clerk) {
     return [];
@@ -175,10 +175,19 @@ async function listChildUsers(adminEmails) {
         display_name: inferDisplayName(user),
       };
     })
-    .filter((user) => user.email && !adminEmails.includes(user.email.toLowerCase()));
+    .filter((user) => {
+      const normalized = user.email.toLowerCase();
+      if (!user.email || adminEmails.includes(normalized)) {
+        return false;
+      }
+      if (childEmails.length > 0) {
+        return childEmails.includes(normalized);
+      }
+      return true;
+    });
 }
 
-async function resolveRequester(req, adminEmails) {
+async function resolveRequester(req, adminEmails, childEmails) {
   const auth = getAuth(req);
   if (!auth?.userId) {
     return null;
@@ -186,12 +195,20 @@ async function resolveRequester(req, adminEmails) {
 
   const user = await safeGetUser(auth.userId);
   const email = user?.primaryEmailAddress?.emailAddress || user?.emailAddresses?.[0]?.emailAddress || '';
+  const normalizedEmail = String(email).toLowerCase();
+  let role = 'blocked';
+
+  if (adminEmails.includes(normalizedEmail)) {
+    role = 'admin';
+  } else if (childEmails.length === 0 || childEmails.includes(normalizedEmail)) {
+    role = 'child';
+  }
 
   return {
     user_id: auth.userId,
     email,
     display_name: inferDisplayName(user),
-    role: adminEmails.includes(String(email).toLowerCase()) ? 'admin' : 'child',
+    role,
   };
 }
 
@@ -731,6 +748,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
 
   const clerkEnabled = Boolean(process.env.CLERK_SECRET_KEY && process.env.CLERK_PUBLISHABLE_KEY);
   const adminEmails = normalizeEmailList(process.env.VOCAB_ADMIN_EMAILS);
+  const childEmails = normalizeEmailList(process.env.VOCAB_CHILD_EMAILS);
 
   if (clerkEnabled) {
     app.use(`/${appName}/api`, clerkMiddleware({
@@ -745,9 +763,17 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       return;
     }
 
-    const requester = await resolveRequester(req, adminEmails);
+    const requester = await resolveRequester(req, adminEmails, childEmails);
     if (!requester) {
       res.status(401).json({ error: 'unauthorized' });
+      return;
+    }
+
+    if (requester.role === 'blocked') {
+      res.status(403).json({
+        error: 'forbidden',
+        message: 'Signed in, but this email is not allowed for vocab access.',
+      });
       return;
     }
 
@@ -916,7 +942,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
 
   app.get(`/${appName}/api/admin/children`, requireAdmin, async (_req, res) => {
     const store = readStore(paths);
-    const children = await listChildUsers(adminEmails);
+    const children = await listChildUsers(adminEmails, childEmails);
 
     for (const child of children) {
       ensureChildProfile(store.profiles, child);

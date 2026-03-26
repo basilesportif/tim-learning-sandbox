@@ -17,6 +17,7 @@ Server:
 export CLERK_PUBLISHABLE_KEY="pk_..."
 export CLERK_SECRET_KEY="sk_..."
 export VOCAB_ADMIN_EMAILS="admin@example.com"
+export VOCAB_CHILD_EMAILS="child1@example.com,child2@example.com"
 export OPENAI_API_KEY="sk-..."
 ```
 
