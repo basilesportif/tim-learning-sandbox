@@ -6,6 +6,8 @@ import crypto from 'crypto';
 import { SOURCE_SYNC_DEFAULTS, syncGdlCandidates } from './ukraine_sources.js';
 import { setupVocabApiRoutes } from './vocab.js';
 
+process.loadEnvFile?.();
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const appsDir = join(__dirname, '..', 'apps');

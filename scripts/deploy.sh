@@ -10,6 +10,12 @@ echo "🚀 Deploying to $SERVER..."
 # Pull latest code on server
 ssh $SERVER "cd $REMOTE_PATH && git pull"
 
+# Sync root env before any remote build so Vite and Node can read Clerk/OpenAI keys
+if [ -f ".env" ]; then
+    echo "🔐 Syncing .env..."
+    rsync -av --progress .env $SERVER:$REMOTE_PATH/.env
+fi
+
 # Install dependencies and build
 if [ -n "$APP_NAME" ]; then
     echo "📦 Building app: $APP_NAME"
@@ -24,7 +30,7 @@ else
     done
 fi
 
-# Rsync secrets if they exist locally
+# Rsync secrets directory if it exists locally
 if [ -d "secrets" ]; then
     echo "🔐 Syncing secrets..."
     rsync -av --progress secrets/ $SERVER:$REMOTE_PATH/secrets/
