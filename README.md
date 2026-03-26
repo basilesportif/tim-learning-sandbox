@@ -8,6 +8,7 @@ Simple educational websites for kids - each app teaches something new.
 - **count-grouping** - Bundle soccer balls and basketballs into groups of 5 (bags) and 10 (carts) - learn counting by 5s and 10s
 - **quickmath** - Rapid-fire addition and subtraction with timed multiple-choice practice
 - **soccer-spacing** - Practice soccer field spacing and positioning
+- **vocab** - Clerk-authenticated vocabulary prep for books with admin import, child practice, and light spaced repetition
 
 ## Structure
 
@@ -21,6 +22,8 @@ scripts/
   deploy.sh            # Deploy to tim-apps server
 ```
 
+`apps/vocab` also stores raw imported book text and generated word images under its `data/` directory.
+
 ## Development
 
 ```bash
@@ -29,6 +32,21 @@ cd apps/<app-name>
 npm install
 npm run dev
 ```
+
+## Vocab App Environment
+
+`apps/vocab` depends on Clerk in the frontend and Clerk/OpenAI in the shared Express server.
+
+Server environment:
+- `CLERK_PUBLISHABLE_KEY`
+- `CLERK_SECRET_KEY`
+- `VOCAB_ADMIN_EMAILS`
+- `OPENAI_API_KEY`
+
+Frontend environment for the Vite app:
+- `VITE_CLERK_PUBLISHABLE_KEY`
+
+`apps/vocab` also accepts a single root `CLERK_PUBLISHABLE_KEY`; its Vite config injects that into the frontend if the `VITE_` variant is not set.
 
 ## Deployment
 

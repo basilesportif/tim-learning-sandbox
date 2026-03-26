@@ -4,6 +4,7 @@ import { dirname, join } from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { SOURCE_SYNC_DEFAULTS, syncGdlCandidates } from './ukraine_sources.js';
+import { setupVocabApiRoutes } from './vocab.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -12,9 +13,10 @@ const appsDir = join(__dirname, '..', 'apps');
 const app = express();
 const PORT = process.env.PORT || 3004;
 
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));
 
 const UKRAINE_APP_NAME = 'ukraine';
+const VOCAB_APP_NAME = 'vocab';
 const UKRAINE_COOKIE_NAME = 'ukraine_unlock';
 const UKRAINE_PASSWORD = process.env.UKRAINE_APP_PASSWORD || 'tim-learning';
 const UKRAINE_MAX_ATTEMPTS = 5;
@@ -1970,6 +1972,8 @@ fs.readdirSync(appsDir).forEach((appName) => {
 
   if (appName === UKRAINE_APP_NAME) {
     setupUkraineApiRoutes(appName, dataPath);
+  } else if (appName === VOCAB_APP_NAME) {
+    setupVocabApiRoutes(app, appName, dataPath);
   } else {
     // Generic API routes for simple app data persistence
     app.get(`/${appName}/api/data/:file`, (req, res) => {
@@ -2006,4 +2010,5 @@ app.listen(PORT, () => {
   console.log(`📚 Apps directory: ${appsDir}`);
   console.log(`🌐 Home: ${baseUrl}/`);
   console.log(`📖 Ukraine: ${baseUrl}/ukraine/`);
+  console.log(`🧠 Vocab: ${baseUrl}/vocab/`);
 });

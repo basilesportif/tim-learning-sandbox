@@ -9,6 +9,8 @@
     "sync:ukraine:sources": "node scripts/sync-ukraine-sources.mjs"
   },
   "dependencies": {
-    "express": "^4.18.2"
+    "@clerk/express": "^2.0.7",
+    "express": "^4.18.2",
+    "openai": "^6.8.0"
   }
 }
