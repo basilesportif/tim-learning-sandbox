@@ -7,6 +7,8 @@
     radial-gradient(circle at top left, rgba(233, 201, 127, 0.32), transparent 34%),
     radial-gradient(circle at bottom right, rgba(135, 178, 146, 0.28), transparent 28%),
     linear-gradient(180deg, #f4efe4, #e5ddd1 56%, #ddd7cc);
+  background-size: 200% 200%;
+  animation: drift-bg 25s ease-in-out infinite alternate;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -52,4 +54,9 @@ code {
   font-size: 0.75rem;
   color: #82602f;
   font-weight: 700;
+}
+
+@keyframes drift-bg {
+  0% { background-position: 0% 0%; }
+  100% { background-position: 100% 100%; }
 }

@@ -379,7 +379,7 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
 
   if (sessionState?.summary) {
     return (
-      <section className="panel child-session-panel">
+      <section className="panel child-session-panel session-complete">
         <div className="panel-head">
           <div>
             <p className="eyebrow">Session Complete</p>
@@ -415,7 +415,7 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
           </p>
         </div>
 
-        <article className="word-card">
+        <article key={currentCard.word_id} className="word-card">
           <p className="word-label">Word</p>
           <h2>{currentCard.lemma}</h2>
           {currentCard.image_url ? (
