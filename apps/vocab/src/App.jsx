@@ -19,8 +19,15 @@ function readFileAsText(file) {
 }
 
 function readFilesAsDataUrls(files) {
+  const sortedFiles = [...files].sort((left, right) => (
+    String(left?.name || '').localeCompare(String(right?.name || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    })
+  ));
+
   return Promise.all(
-    [...files].map((file) => new Promise((resolve, reject) => {
+    sortedFiles.map((file) => new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(String(reader.result || ''));
       reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
