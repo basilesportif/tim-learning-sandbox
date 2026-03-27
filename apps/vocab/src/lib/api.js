@@ -26,7 +26,7 @@ async function request(path, options = {}, getToken) {
   const data = await parseBody(res);
 
   if (!res.ok) {
-    const error = new Error((data && data.error) || `Request failed: ${res.status}`);
+    const error = new Error((data && (data.message || data.error)) || `Request failed: ${res.status}`);
     error.status = res.status;
     error.data = data;
     throw error;
@@ -42,6 +42,9 @@ export function createApiClient(getToken) {
     },
     getAdminBooks() {
       return request('/admin/books', { method: 'GET' }, getToken);
+    },
+    getImportJob(jobId) {
+      return request(`/admin/import-jobs/${encodeURIComponent(jobId)}`, { method: 'GET' }, getToken);
     },
     importBook(payload) {
       const formData = new FormData();

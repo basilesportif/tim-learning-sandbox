@@ -27,6 +27,33 @@ function formatBand(value) {
   return `Band ${band}`;
 }
 
+function formatImportProgress(job) {
+  const parts = [];
+  const pageTotal = Number(job?.page_total) || 0;
+  const pageCompleted = Math.min(Number(job?.page_completed) || 0, pageTotal);
+  const wordTotal = Number(job?.word_total) || 0;
+  const wordCompleted = Math.min(Number(job?.word_completed) || 0, wordTotal);
+
+  if (pageTotal > 0) {
+    parts.push(`OCR ${pageCompleted}/${pageTotal}`);
+  }
+  if (wordTotal > 0) {
+    parts.push(`Words ${wordCompleted}/${wordTotal}`);
+  }
+
+  return parts.join(' • ');
+}
+
+function mergeImportJobs(currentJobs, nextJob) {
+  return [
+    nextJob,
+    ...currentJobs.filter((job) => job.id !== nextJob.id),
+  ].sort((left, right) => (
+    new Date(right?.updated_at || right?.created_at || 0).getTime()
+    - new Date(left?.updated_at || left?.created_at || 0).getTime()
+  ));
+}
+
 function ShellHeader({ role, name, onRefresh }) {
   return (
     <header className="shell-header">
@@ -64,6 +91,12 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   const [enableImages, setEnableImages] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [assignBusy, setAssignBusy] = useState(false);
+  const [importJobs, setImportJobs] = useState(adminData.importJobs || []);
+  const [trackedImportJobId, setTrackedImportJobId] = useState('');
+
+  const upsertImportJob = useCallback((job) => {
+    setImportJobs((currentJobs) => mergeImportJobs(currentJobs, job));
+  }, []);
 
   useEffect(() => {
     if (!selectedBookId && adminData.books[0]) {
@@ -74,6 +107,57 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
     }
   }, [adminData.books, adminData.children, selectedBookId, selectedChildId]);
 
+  useEffect(() => {
+    setImportJobs(adminData.importJobs || []);
+  }, [adminData.importJobs]);
+
+  useEffect(() => {
+    if (trackedImportJobId) {
+      return;
+    }
+
+    const activeJob = (adminData.importJobs || []).find((job) => (
+      job.status === 'queued' || job.status === 'processing'
+    ));
+
+    if (activeJob) {
+      setTrackedImportJobId(activeJob.id);
+    }
+  }, [adminData.importJobs, trackedImportJobId]);
+
+  useEffect(() => {
+    if (!trackedImportJobId) {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(async () => {
+      try {
+        const data = await api.getImportJob(trackedImportJobId);
+        const nextJob = data.job;
+        upsertImportJob(nextJob);
+
+        if (nextJob.status === 'completed') {
+          setTrackedImportJobId('');
+          setNotice(`Book import completed: ${nextJob.title}.`);
+          onReload();
+          return;
+        }
+
+        if (nextJob.status === 'failed') {
+          setTrackedImportJobId('');
+          setError(nextJob.message || 'Book import failed.');
+        }
+      } catch (error) {
+        setTrackedImportJobId('');
+        setError(error.message || 'Could not check import status.');
+      }
+    }, 2500);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [api, onReload, setError, setNotice, trackedImportJobId, upsertImportJob]);
+
   async function handleImport(event) {
     event.preventDefault();
     setImportBusy(true);
@@ -81,7 +165,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
     setNotice('');
 
     try {
-      await api.importBook({
+      const data = await api.importBook({
         title,
         author,
         language,
@@ -97,8 +181,11 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
       setTextFile(null);
       setOcrFiles([]);
       setGenerateImages(false);
-      setNotice('Book import completed.');
-      await onReload();
+      if (data?.job) {
+        upsertImportJob(data.job);
+        setTrackedImportJobId(data.job.id);
+      }
+      setNotice('Book import started. This page will update when the draft is ready.');
     } catch (error) {
       setError(error.message || 'Book import failed.');
     } finally {
@@ -147,6 +234,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   }
 
   const publishedBooks = adminData.books.filter((book) => book.status === 'published');
+  const recentImportJobs = importJobs.slice(0, 8);
 
   return (
     <div className="workspace-grid">
@@ -216,7 +304,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
           </label>
 
           <button type="submit" className="primary-button" disabled={importBusy}>
-            {importBusy ? 'Importing…' : 'Import Draft'}
+            {importBusy ? 'Starting…' : 'Start Import'}
           </button>
         </form>
       </section>
@@ -277,6 +365,36 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
             {assignBusy ? 'Assigning…' : 'Assign Book'}
           </button>
         </form>
+      </section>
+
+      <section className="panel list-panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Import Jobs</p>
+            <h2>Recent Runs</h2>
+          </div>
+        </div>
+
+        <div className="card-list">
+          {recentImportJobs.length === 0 ? (
+            <p className="empty-state">No import jobs yet.</p>
+          ) : (
+            recentImportJobs.map((job) => (
+              <article key={job.id} className="list-card">
+                <div className="list-card-head">
+                  <div>
+                    <h3>{job.title}</h3>
+                    <p>{job.message || 'Waiting for status update.'}</p>
+                  </div>
+                  <span className={`status-pill status-${job.status}`}>{job.status}</span>
+                </div>
+                <p>
+                  {formatImportProgress(job) || 'Queued for processing'}
+                </p>
+              </article>
+            ))
+          )}
+        </div>
       </section>
 
       <section className="panel list-panel">
@@ -526,7 +644,7 @@ export default function App() {
   const { user } = useUser();
   const api = useMemo(() => createApiClient(getToken), [getToken]);
   const [me, setMe] = useState(null);
-  const [adminData, setAdminData] = useState({ books: [], children: [] });
+  const [adminData, setAdminData] = useState({ books: [], children: [], importJobs: [] });
   const [childData, setChildData] = useState({ assignments: [], profile: null });
   const [sessionState, setSessionState] = useState(null);
   const [notice, setNotice] = useState('');
@@ -544,6 +662,7 @@ export default function App() {
     return {
       books: booksData.books || [],
       children: childrenData.children || [],
+      importJobs: booksData.import_jobs || [],
     };
   }, [api]);
 
@@ -555,10 +674,10 @@ export default function App() {
     };
   }, [api]);
 
-  async function refreshAll() {
+  const refreshAll = useCallback(() => {
     setError('');
     setReloadNonce((value) => value + 1);
-  }
+  }, []);
 
   useEffect(() => {
     if (!isLoaded || !userId) {

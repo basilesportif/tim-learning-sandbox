@@ -6,6 +6,7 @@ Private vocabulary prep for books.
 
 - Admin signs in with Clerk and imports books from pasted text, `.txt`, or page photos
 - OCR page photos are processed in filename order, so names like `001.jpg`, `002.jpg`, `003.jpg` control page order
+- Book imports run as background jobs so large OCR batches do not time out the browser request
 - Book source text is stored server-side only for admin use
 - Child users sign in with Clerk and see only their own assignments
 - Sessions use multiple-choice meaning checks, optional hints, optional illustrations, and light spaced repetition

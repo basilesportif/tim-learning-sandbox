@@ -443,6 +443,49 @@ function getUploadedFiles(req, fieldName) {
   return Array.isArray(req.files[fieldName]) ? req.files[fieldName] : [];
 }
 
+function sortImportJobs(importJobs) {
+  return [...(Array.isArray(importJobs) ? importJobs : [])].sort((left, right) => (
+    new Date(right?.updated_at || right?.created_at || 0).getTime()
+    - new Date(left?.updated_at || left?.created_at || 0).getTime()
+  ));
+}
+
+function upsertImportJob(importJobsPath, nextJob) {
+  const currentJobs = readJson(importJobsPath, []);
+  const remainingJobs = currentJobs.filter((job) => job.id !== nextJob.id);
+  const updatedJobs = sortImportJobs([{
+    ...nextJob,
+    updated_at: nowIso(),
+  }, ...remainingJobs]).slice(0, 60);
+  writeJson(importJobsPath, updatedJobs);
+  return updatedJobs[0];
+}
+
+function updateImportJob(importJobsPath, jobId, updater) {
+  const currentJobs = readJson(importJobsPath, []);
+  const jobIndex = currentJobs.findIndex((job) => job.id === jobId);
+  if (jobIndex < 0) {
+    return null;
+  }
+
+  const currentJob = currentJobs[jobIndex];
+  const nextJob = typeof updater === 'function'
+    ? updater(currentJob)
+    : {
+        ...currentJob,
+        ...updater,
+      };
+
+  currentJobs[jobIndex] = {
+    ...nextJob,
+    updated_at: nowIso(),
+  };
+
+  const updatedJobs = sortImportJobs(currentJobs).slice(0, 60);
+  writeJson(importJobsPath, updatedJobs);
+  return updatedJobs.find((job) => job.id === jobId) || null;
+}
+
 async function enrichWordMetadataWithAI(candidate, bookTitle) {
   const client = getOpenAIClient();
   if (!client) {
@@ -842,6 +885,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
   const profilesPath = join(dataPath, 'profiles.json');
   const assignmentsPath = join(dataPath, 'assignments.json');
   const sessionsPath = join(dataPath, 'sessions.json');
+  const importJobsPath = join(dataPath, 'import_jobs.json');
   const paths = {
     booksPath,
     wordCatalogPath,
@@ -857,6 +901,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
   ensureJsonFile(profilesPath, {});
   ensureJsonFile(assignmentsPath, []);
   ensureJsonFile(sessionsPath, []);
+  ensureJsonFile(importJobsPath, []);
 
   const clerkEnabled = Boolean(process.env.CLERK_SECRET_KEY && process.env.CLERK_PUBLISHABLE_KEY);
   const adminEmails = normalizeEmailList(process.env.VOCAB_ADMIN_EMAILS);
@@ -874,6 +919,194 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       secretKey: process.env.CLERK_SECRET_KEY,
       publishableKey: process.env.CLERK_PUBLISHABLE_KEY,
     }));
+  }
+
+  let importQueue = Promise.resolve();
+
+  function enqueueImportJob(task) {
+    importQueue = importQueue
+      .catch(() => {})
+      .then(task);
+    return importQueue;
+  }
+
+  async function runImportJob(jobId, payload) {
+    const {
+      title,
+      author,
+      language,
+      importedText,
+      ocrImageEntries,
+      generateImages,
+      maxWordCount,
+      createdBy,
+    } = payload;
+
+    const startedAt = Date.now();
+
+    try {
+      updateImportJob(importJobsPath, jobId, (job) => ({
+        ...job,
+        status: 'processing',
+        step: ocrImageEntries.length > 0 ? 'ocr' : 'vocabulary',
+        message: ocrImageEntries.length > 0
+          ? `Transcribing ${ocrImageEntries.length} page images.`
+          : 'Preparing target vocabulary.',
+        started_at: job.started_at || nowIso(),
+      }));
+
+      let ocrText = '';
+      if (ocrImageEntries.length > 0) {
+        const transcribed = [];
+        console.log(`[vocab] Starting OCR import for "${title}" with ${ocrImageEntries.length} page images.`);
+
+        for (let index = 0; index < ocrImageEntries.length; index += 1) {
+          const image = ocrImageEntries[index];
+          const pageNumber = index + 1;
+
+          updateImportJob(importJobsPath, jobId, (job) => ({
+            ...job,
+            status: 'processing',
+            step: 'ocr',
+            message: `Transcribing page ${pageNumber} of ${ocrImageEntries.length}.`,
+            page_total: ocrImageEntries.length,
+            page_completed: index,
+          }));
+
+          transcribed.push(await transcribeImage(image.dataUrl));
+
+          updateImportJob(importJobsPath, jobId, (job) => ({
+            ...job,
+            page_total: ocrImageEntries.length,
+            page_completed: pageNumber,
+          }));
+        }
+
+        ocrText = transcribed.join('\n\n');
+      }
+
+      const combinedText = sanitizeText([importedText, ocrText].filter(Boolean).join('\n\n'));
+      if (!combinedText) {
+        throw new Error('OCR completed but no usable text was extracted.');
+      }
+
+      const store = readStore(paths);
+      const createdAt = nowIso();
+      const bookId = `book_${slugify(title)}_${crypto.randomUUID().slice(0, 8)}`;
+      ensureBookAssetDirectories(booksDir, bookId);
+      const pageImages = saveOcrPageImages(bookId, ocrImageEntries, booksDir);
+      const sourceFileName = `${bookId}.txt`;
+      fs.writeFileSync(join(booksDir, sourceFileName), combinedText, 'utf-8');
+
+      const candidates = extractCandidateWords(combinedText, maxWordCount);
+      const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
+      const wordIds = [];
+
+      updateImportJob(importJobsPath, jobId, (job) => ({
+        ...job,
+        status: 'processing',
+        step: 'vocabulary',
+        message: `Preparing ${candidates.length} target words.`,
+        word_total: candidates.length,
+        word_completed: 0,
+      }));
+
+      for (let index = 0; index < candidates.length; index += 1) {
+        const candidate = candidates[index];
+        const existing = wordCatalogById[`word_${slugify(candidate.lemma)}`];
+        let generatedImageFile = null;
+        let wordRecord = existing;
+
+        updateImportJob(importJobsPath, jobId, (job) => ({
+          ...job,
+          status: 'processing',
+          step: 'vocabulary',
+          message: `Preparing word ${index + 1} of ${candidates.length}: ${candidate.lemma}.`,
+          word_total: candidates.length,
+          word_completed: index,
+        }));
+
+        if (!wordRecord) {
+          const metadata = await enrichWordMetadataWithAI(candidate, title);
+          if (generateImages) {
+            generatedImageFile = await maybeGenerateWordImage(metadata.imagePrompt, `word_${slugify(candidate.lemma)}`, imagesDir);
+          }
+          wordRecord = shapeWordRecord(candidate, metadata, bookId, imagesDir, generatedImageFile);
+          store.wordCatalog.push(wordRecord);
+        } else {
+          wordRecord.source_books = unique([...(wordRecord.source_books || []), bookId]);
+          wordRecord.count_in_book = Math.max(Number(wordRecord.count_in_book) || 0, candidate.count);
+          wordRecord.snippets = unique([...(wordRecord.snippets || []), ...candidate.snippets]).slice(0, 4);
+          wordRecord.updated_at = createdAt;
+        }
+
+        wordIds.push(wordRecord.id);
+
+        updateImportJob(importJobsPath, jobId, (job) => ({
+          ...job,
+          word_total: candidates.length,
+          word_completed: index + 1,
+        }));
+      }
+
+      const book = {
+        id: bookId,
+        title,
+        author,
+        language,
+        status: 'draft',
+        text_path: join(booksDir, sourceFileName),
+        word_ids: wordIds,
+        word_count: combinedText.split(/\s+/).filter(Boolean).length,
+        page_images: pageImages,
+        artifacts: [],
+        created_by: createdBy,
+        created_at: createdAt,
+        updated_at: createdAt,
+        settings: {
+          generate_images: generateImages,
+        },
+      };
+
+      store.books.unshift(book);
+      writeStore(paths, store);
+
+      console.log(
+        `[vocab] Imported "${title}" with ${pageImages.length} page images and ${wordIds.length} target words.`
+      );
+
+      updateImportJob(importJobsPath, jobId, (job) => ({
+        ...job,
+        status: 'completed',
+        step: 'complete',
+        message: `Imported "${title}" with ${wordIds.length} target words.`,
+        finished_at: nowIso(),
+        duration_ms: Date.now() - startedAt,
+        book_id: bookId,
+        imported_word_count: wordIds.length,
+        imported_page_image_count: pageImages.length,
+        page_total: pageImages.length,
+        page_completed: pageImages.length,
+        word_total: wordIds.length,
+        word_completed: wordIds.length,
+      }));
+    } catch (error) {
+      console.error('[vocab] Book import failed', {
+        title,
+        jobId,
+        error: error?.stack || error?.message || error,
+      });
+
+      updateImportJob(importJobsPath, jobId, (job) => ({
+        ...job,
+        status: 'failed',
+        step: 'failed',
+        message: error?.message || 'Book import failed on the server.',
+        error: error?.message || 'Book import failed on the server.',
+        finished_at: nowIso(),
+        duration_ms: Date.now() - startedAt,
+      }));
+    }
   }
 
   async function requireSignedIn(req, res, next) {
@@ -954,7 +1187,19 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
         words: book.word_ids.map((wordId) => wordCatalogById[wordId]).filter(Boolean),
       })),
       word_catalog: store.wordCatalog,
+      import_jobs: sortImportJobs(readJson(importJobsPath, [])).slice(0, 12),
     });
+  });
+
+  app.get(`/${appName}/api/admin/import-jobs/:jobId`, requireAdmin, (req, res) => {
+    const importJobs = readJson(importJobsPath, []);
+    const job = importJobs.find((item) => item.id === req.params.jobId);
+    if (!job) {
+      res.status(404).json({ error: 'import_job_not_found' });
+      return;
+    }
+
+    res.json({ job });
   });
 
   app.post(
@@ -995,7 +1240,6 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
           return;
         }
 
-        let ocrText = '';
         if (!importedText && ocrImageEntries.length === 0) {
           res.status(400).json({
             error: 'text_or_images_required',
@@ -1004,90 +1248,38 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
           return;
         }
 
-        if (ocrImageEntries.length > 0) {
-          const transcribed = [];
-          console.log(`[vocab] Starting OCR import for "${title}" with ${ocrImageEntries.length} page images.`);
-          for (const image of ocrImageEntries) {
-            transcribed.push(await transcribeImage(image.dataUrl));
-          }
-          ocrText = transcribed.join('\n\n');
-        }
-
-        const combinedText = sanitizeText([importedText, ocrText].filter(Boolean).join('\n\n'));
-        if (!combinedText) {
-          res.status(400).json({
-            error: 'empty_book_text',
-            message: 'OCR completed but no usable text was extracted.',
-          });
-          return;
-        }
-
-        const store = readStore(paths);
         const createdAt = nowIso();
-        const bookId = `book_${slugify(title)}_${crypto.randomUUID().slice(0, 8)}`;
-        ensureBookAssetDirectories(booksDir, bookId);
-        const pageImages = saveOcrPageImages(bookId, ocrImageEntries, booksDir);
-        const sourceFileName = `${bookId}.txt`;
-        fs.writeFileSync(join(booksDir, sourceFileName), combinedText, 'utf-8');
-
-        const candidates = extractCandidateWords(combinedText, maxWordCount);
-        const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
-        const wordIds = [];
-
-        for (const candidate of candidates) {
-          const existing = wordCatalogById[`word_${slugify(candidate.lemma)}`];
-          let generatedImageFile = null;
-          let wordRecord = existing;
-
-          if (!wordRecord) {
-            const metadata = await enrichWordMetadataWithAI(candidate, title);
-            if (generateImages) {
-              generatedImageFile = await maybeGenerateWordImage(metadata.imagePrompt, `word_${slugify(candidate.lemma)}`, imagesDir);
-            }
-            wordRecord = shapeWordRecord(candidate, metadata, bookId, imagesDir, generatedImageFile);
-            store.wordCatalog.push(wordRecord);
-          } else {
-            wordRecord.source_books = unique([...(wordRecord.source_books || []), bookId]);
-            wordRecord.count_in_book = Math.max(Number(wordRecord.count_in_book) || 0, candidate.count);
-            wordRecord.snippets = unique([...(wordRecord.snippets || []), ...candidate.snippets]).slice(0, 4);
-            wordRecord.updated_at = createdAt;
-          }
-
-          wordIds.push(wordRecord.id);
-        }
-
-        const book = {
-          id: bookId,
+        const job = upsertImportJob(importJobsPath, {
+          id: `import_${slugify(title)}_${crypto.randomUUID().slice(0, 8)}`,
           title,
           author,
           language,
-          status: 'draft',
-          text_path: join(booksDir, sourceFileName),
-          word_ids: wordIds,
-          word_count: combinedText.split(/\s+/).filter(Boolean).length,
-          page_images: pageImages,
-          artifacts: [],
+          status: 'queued',
+          step: 'queued',
+          message: 'Import queued.',
+          page_total: ocrImageEntries.length,
+          page_completed: 0,
+          word_total: 0,
+          word_completed: 0,
+          generate_images: generateImages,
+          max_word_count: maxWordCount,
           created_by: req.vocabUser.user_id,
           created_at: createdAt,
           updated_at: createdAt,
-          settings: {
-            generate_images: generateImages,
-          },
-        };
-
-        store.books.unshift(book);
-        writeStore(paths, store);
-
-        console.log(
-          `[vocab] Imported "${title}" with ${pageImages.length} page images and ${wordIds.length} target words.`
-        );
-
-        res.json({
-          book,
-          words: wordIds.map((wordId) => makeWordCatalogIndex(store.wordCatalog)[wordId]).filter(Boolean),
-          imported_word_count: wordIds.length,
-          imported_page_image_count: pageImages.length,
         });
+
+        enqueueImportJob(() => runImportJob(job.id, {
+          title,
+          author,
+          language,
+          importedText,
+          ocrImageEntries,
+          generateImages,
+          maxWordCount,
+          createdBy: req.vocabUser.user_id,
+        }));
+
+        res.status(202).json({ job });
       } catch (error) {
         console.error('[vocab] Book import failed', {
           title: req.body?.title || '',

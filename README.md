@@ -44,6 +44,8 @@ Server environment:
 - `VOCAB_CHILD_EMAILS`
 - `OPENAI_API_KEY`
 
+Large vocab book imports are queued and processed in the background so OCR-heavy uploads do not hit CDN/proxy request timeouts.
+
 Artifact extraction for vocab books:
 
 ```bash
