@@ -12,7 +12,7 @@ const __dirname = dirname(__filename);
 const repoRoot = resolve(__dirname, '..');
 const dataPath = join(repoRoot, 'apps', 'vocab', 'data');
 const booksPath = join(dataPath, 'books.json');
-const DEFAULT_MODEL = process.env.VOCAB_ARTIFACT_MODEL || 'gpt-4.1-mini';
+const DEFAULT_MODEL = process.env.VOCAB_ARTIFACT_MODEL || 'gpt-5.4';
 
 function nowIso() {
   return new Date().toISOString();

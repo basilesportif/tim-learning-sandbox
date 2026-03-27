@@ -427,7 +427,7 @@ async function enrichWordMetadataWithAI(candidate, bookTitle) {
 
   try {
     const response = await client.responses.create({
-      model: process.env.VOCAB_WORD_MODEL || 'gpt-4.1-mini',
+      model: process.env.VOCAB_WORD_MODEL || 'gpt-5.4',
       input: [
         {
           role: 'user',
@@ -463,7 +463,7 @@ async function transcribeImage(dataUrl) {
   }
 
   const response = await client.responses.create({
-    model: process.env.VOCAB_OCR_MODEL || 'gpt-4.1-mini',
+    model: process.env.VOCAB_OCR_MODEL || 'gpt-5.4',
     input: [
       {
         role: 'user',
