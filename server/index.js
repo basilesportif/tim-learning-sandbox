@@ -16,6 +16,7 @@ const app = express();
 const PORT = process.env.PORT || 3004;
 
 app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 const UKRAINE_APP_NAME = 'ukraine';
 const VOCAB_APP_NAME = 'vocab';
@@ -2003,6 +2004,45 @@ fs.readdirSync(appsDir).forEach((appName) => {
       res.sendFile(join(distPath, 'index.html'));
     });
   }
+});
+
+app.use((error, req, res, next) => {
+  if (!error) {
+    next();
+    return;
+  }
+
+  if (error.type === 'entity.too.large') {
+    res.status(413).json({
+      error: 'payload_too_large',
+      message: 'Upload too large. Try fewer pages or smaller image files.',
+    });
+    return;
+  }
+
+  if (error.name === 'MulterError') {
+    const status = error.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    const message = error.code === 'LIMIT_FILE_SIZE'
+      ? 'One of the uploaded files is too large.'
+      : 'Upload failed while parsing the files.';
+    res.status(status).json({
+      error: 'upload_failed',
+      message,
+      code: error.code,
+    });
+    return;
+  }
+
+  console.error('[server] Unhandled request error', {
+    method: req.method,
+    path: req.originalUrl || req.url,
+    error: error?.stack || error?.message || error,
+  });
+
+  res.status(500).json({
+    error: 'server_error',
+    message: 'Unexpected server error.',
+  });
 });
 
 app.listen(PORT, () => {

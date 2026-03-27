@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import { join } from 'path';
 import { clerkMiddleware, createClerkClient, getAuth } from '@clerk/express';
+import multer from 'multer';
 import OpenAI from 'openai';
 
 const APP_NAME = 'vocab';
@@ -135,6 +136,15 @@ function unique(values) {
   return [...new Set(values)];
 }
 
+function sortFilesByName(files, nameKey = 'name') {
+  return [...files].sort((left, right) => (
+    String(left?.[nameKey] || '').localeCompare(String(right?.[nameKey] || ''), undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    })
+  ));
+}
+
 function ensureBookAssetDirectories(booksDir, bookId) {
   const bookDir = join(booksDir, bookId);
   const pagesDir = join(bookDir, 'pages');
@@ -157,8 +167,14 @@ function saveOcrPageImages(bookId, ocrImages, booksDir) {
   const { pagesDir } = ensureBookAssetDirectories(booksDir, bookId);
 
   return ocrImages
-    .map((dataUrl, index) => {
-      const parsed = parseDataUrl(dataUrl);
+    .map((entry, index) => {
+      const normalizedEntry = typeof entry === 'string'
+        ? { dataUrl: entry, originalName: '' }
+        : {
+            dataUrl: entry?.dataUrl || '',
+            originalName: entry?.originalName || '',
+          };
+      const parsed = parseDataUrl(normalizedEntry.dataUrl);
       if (!parsed) {
         return null;
       }
@@ -171,6 +187,7 @@ function saveOcrPageImages(bookId, ocrImages, booksDir) {
       return {
         id: pageId,
         page_index: index + 1,
+        original_filename: normalizedEntry.originalName || null,
         mime_type: parsed.mimeType,
         image_path: filePath,
         created_at: nowIso(),
@@ -404,6 +421,26 @@ function extractFirstJsonObject(text) {
 
 function createArtifactAssetUrl(appName, bookId, artifactId) {
   return `/${appName}/api/admin/books/${encodeURIComponent(bookId)}/artifacts/${encodeURIComponent(artifactId)}`;
+}
+
+function parseBooleanField(value) {
+  return String(value || '').toLowerCase() === 'true';
+}
+
+function fileBufferToDataUrl(file) {
+  const mimeType = file?.mimetype || 'image/png';
+  const buffer = Buffer.isBuffer(file?.buffer) ? file.buffer : null;
+  if (!buffer) {
+    return null;
+  }
+  return `data:${mimeType};base64,${buffer.toString('base64')}`;
+}
+
+function getUploadedFiles(req, fieldName) {
+  if (!req.files || typeof req.files !== 'object') {
+    return [];
+  }
+  return Array.isArray(req.files[fieldName]) ? req.files[fieldName] : [];
 }
 
 async function enrichWordMetadataWithAI(candidate, bookTitle) {
@@ -824,6 +861,13 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
   const clerkEnabled = Boolean(process.env.CLERK_SECRET_KEY && process.env.CLERK_PUBLISHABLE_KEY);
   const adminEmails = normalizeEmailList(process.env.VOCAB_ADMIN_EMAILS);
   const childEmails = normalizeEmailList(process.env.VOCAB_CHILD_EMAILS);
+  const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+      files: 80,
+      fileSize: 25 * 1024 * 1024,
+    },
+  });
 
   if (clerkEnabled) {
     app.use(`/${appName}/api`, clerkMiddleware({
@@ -913,103 +957,149 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     });
   });
 
-  app.post(`/${appName}/api/admin/books/import`, requireAdmin, async (req, res) => {
-    const title = String(req.body?.title || '').trim();
-    const author = String(req.body?.author || '').trim();
-    const language = String(req.body?.language || 'en').trim().toLowerCase() || 'en';
-    const manualText = sanitizeText(req.body?.text || '');
-    const ocrImages = Array.isArray(req.body?.ocr_images) ? req.body.ocr_images.filter(Boolean) : [];
-    const generateImages = Boolean(req.body?.generate_images);
-    const maxWordCount = clamp(Number(req.body?.max_word_count) || 24, 8, 60);
+  app.post(
+    `/${appName}/api/admin/books/import`,
+    requireAdmin,
+    upload.fields([
+      { name: 'ocr_files', maxCount: 60 },
+      { name: 'text_file', maxCount: 1 },
+    ]),
+    async (req, res) => {
+      try {
+        const title = String(req.body?.title || '').trim();
+        const author = String(req.body?.author || '').trim();
+        const language = String(req.body?.language || 'en').trim().toLowerCase() || 'en';
+        const manualText = sanitizeText(req.body?.text || '');
+        const textFile = getUploadedFiles(req, 'text_file')[0] || null;
+        const ocrFiles = sortFilesByName(getUploadedFiles(req, 'ocr_files'), 'originalname');
+        const legacyOcrImages = Array.isArray(req.body?.ocr_images)
+          ? req.body.ocr_images.filter(Boolean)
+          : (typeof req.body?.ocr_images === 'string' && req.body.ocr_images ? [req.body.ocr_images] : []);
+        const ocrImageEntries = ocrFiles.length > 0
+          ? ocrFiles
+              .map((file) => {
+                const dataUrl = fileBufferToDataUrl(file);
+                return dataUrl
+                  ? { dataUrl, originalName: file.originalname || '' }
+                  : null;
+              })
+              .filter(Boolean)
+          : legacyOcrImages.map((dataUrl) => ({ dataUrl, originalName: '' }));
+        const textFileText = textFile ? sanitizeText(textFile.buffer?.toString('utf-8') || '') : '';
+        const importedText = manualText || textFileText;
+        const generateImages = parseBooleanField(req.body?.generate_images);
+        const maxWordCount = clamp(Number(req.body?.max_word_count) || 24, 8, 60);
 
-    if (!title) {
-      res.status(400).json({ error: 'title_required' });
-      return;
-    }
-
-    let ocrText = '';
-    if (!manualText && ocrImages.length === 0) {
-      res.status(400).json({ error: 'text_or_images_required' });
-      return;
-    }
-
-    if (ocrImages.length > 0) {
-      const transcribed = [];
-      for (const image of ocrImages) {
-        transcribed.push(await transcribeImage(image));
-      }
-      ocrText = transcribed.join('\n\n');
-    }
-
-    const combinedText = sanitizeText([manualText, ocrText].filter(Boolean).join('\n\n'));
-    if (!combinedText) {
-      res.status(400).json({ error: 'empty_book_text' });
-      return;
-    }
-
-    const store = readStore(paths);
-    const createdAt = nowIso();
-    const bookId = `book_${slugify(title)}_${crypto.randomUUID().slice(0, 8)}`;
-    ensureBookAssetDirectories(booksDir, bookId);
-    const pageImages = saveOcrPageImages(bookId, ocrImages, booksDir);
-    const sourceFileName = `${bookId}.txt`;
-    fs.writeFileSync(join(booksDir, sourceFileName), combinedText, 'utf-8');
-
-    const candidates = extractCandidateWords(combinedText, maxWordCount);
-    const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
-    const wordIds = [];
-
-    for (const candidate of candidates) {
-      const existing = wordCatalogById[`word_${slugify(candidate.lemma)}`];
-      let generatedImageFile = null;
-      let wordRecord = existing;
-
-      if (!wordRecord) {
-        const metadata = await enrichWordMetadataWithAI(candidate, title);
-        if (generateImages) {
-          generatedImageFile = await maybeGenerateWordImage(metadata.imagePrompt, `word_${slugify(candidate.lemma)}`, imagesDir);
+        if (!title) {
+          res.status(400).json({ error: 'title_required', message: 'Title is required.' });
+          return;
         }
-        wordRecord = shapeWordRecord(candidate, metadata, bookId, imagesDir, generatedImageFile);
-        store.wordCatalog.push(wordRecord);
-      } else {
-        wordRecord.source_books = unique([...(wordRecord.source_books || []), bookId]);
-        wordRecord.count_in_book = Math.max(Number(wordRecord.count_in_book) || 0, candidate.count);
-        wordRecord.snippets = unique([...(wordRecord.snippets || []), ...candidate.snippets]).slice(0, 4);
-        wordRecord.updated_at = createdAt;
+
+        let ocrText = '';
+        if (!importedText && ocrImageEntries.length === 0) {
+          res.status(400).json({
+            error: 'text_or_images_required',
+            message: 'Add pasted text, a text file, or page images.',
+          });
+          return;
+        }
+
+        if (ocrImageEntries.length > 0) {
+          const transcribed = [];
+          console.log(`[vocab] Starting OCR import for "${title}" with ${ocrImageEntries.length} page images.`);
+          for (const image of ocrImageEntries) {
+            transcribed.push(await transcribeImage(image.dataUrl));
+          }
+          ocrText = transcribed.join('\n\n');
+        }
+
+        const combinedText = sanitizeText([importedText, ocrText].filter(Boolean).join('\n\n'));
+        if (!combinedText) {
+          res.status(400).json({
+            error: 'empty_book_text',
+            message: 'OCR completed but no usable text was extracted.',
+          });
+          return;
+        }
+
+        const store = readStore(paths);
+        const createdAt = nowIso();
+        const bookId = `book_${slugify(title)}_${crypto.randomUUID().slice(0, 8)}`;
+        ensureBookAssetDirectories(booksDir, bookId);
+        const pageImages = saveOcrPageImages(bookId, ocrImageEntries, booksDir);
+        const sourceFileName = `${bookId}.txt`;
+        fs.writeFileSync(join(booksDir, sourceFileName), combinedText, 'utf-8');
+
+        const candidates = extractCandidateWords(combinedText, maxWordCount);
+        const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
+        const wordIds = [];
+
+        for (const candidate of candidates) {
+          const existing = wordCatalogById[`word_${slugify(candidate.lemma)}`];
+          let generatedImageFile = null;
+          let wordRecord = existing;
+
+          if (!wordRecord) {
+            const metadata = await enrichWordMetadataWithAI(candidate, title);
+            if (generateImages) {
+              generatedImageFile = await maybeGenerateWordImage(metadata.imagePrompt, `word_${slugify(candidate.lemma)}`, imagesDir);
+            }
+            wordRecord = shapeWordRecord(candidate, metadata, bookId, imagesDir, generatedImageFile);
+            store.wordCatalog.push(wordRecord);
+          } else {
+            wordRecord.source_books = unique([...(wordRecord.source_books || []), bookId]);
+            wordRecord.count_in_book = Math.max(Number(wordRecord.count_in_book) || 0, candidate.count);
+            wordRecord.snippets = unique([...(wordRecord.snippets || []), ...candidate.snippets]).slice(0, 4);
+            wordRecord.updated_at = createdAt;
+          }
+
+          wordIds.push(wordRecord.id);
+        }
+
+        const book = {
+          id: bookId,
+          title,
+          author,
+          language,
+          status: 'draft',
+          text_path: join(booksDir, sourceFileName),
+          word_ids: wordIds,
+          word_count: combinedText.split(/\s+/).filter(Boolean).length,
+          page_images: pageImages,
+          artifacts: [],
+          created_by: req.vocabUser.user_id,
+          created_at: createdAt,
+          updated_at: createdAt,
+          settings: {
+            generate_images: generateImages,
+          },
+        };
+
+        store.books.unshift(book);
+        writeStore(paths, store);
+
+        console.log(
+          `[vocab] Imported "${title}" with ${pageImages.length} page images and ${wordIds.length} target words.`
+        );
+
+        res.json({
+          book,
+          words: wordIds.map((wordId) => makeWordCatalogIndex(store.wordCatalog)[wordId]).filter(Boolean),
+          imported_word_count: wordIds.length,
+          imported_page_image_count: pageImages.length,
+        });
+      } catch (error) {
+        console.error('[vocab] Book import failed', {
+          title: req.body?.title || '',
+          error: error?.stack || error?.message || error,
+        });
+        res.status(500).json({
+          error: 'book_import_failed',
+          message: error?.message || 'Book import failed on the server.',
+        });
       }
-
-      wordIds.push(wordRecord.id);
     }
-
-    const book = {
-      id: bookId,
-      title,
-      author,
-      language,
-      status: 'draft',
-      text_path: join(booksDir, sourceFileName),
-      word_ids: wordIds,
-      word_count: combinedText.split(/\s+/).filter(Boolean).length,
-      page_images: pageImages,
-      artifacts: [],
-      created_by: req.vocabUser.user_id,
-      created_at: createdAt,
-      updated_at: createdAt,
-      settings: {
-        generate_images: generateImages,
-      },
-    };
-
-    store.books.unshift(book);
-    writeStore(paths, store);
-
-    res.json({
-      book,
-      words: wordIds.map((wordId) => makeWordCatalogIndex(store.wordCatalog)[wordId]).filter(Boolean),
-      imported_word_count: wordIds.length,
-      imported_page_image_count: pageImages.length,
-    });
-  });
+  );
 
   app.post(`/${appName}/api/admin/books/:bookId/publish`, requireAdmin, (req, res) => {
     const store = readStore(paths);

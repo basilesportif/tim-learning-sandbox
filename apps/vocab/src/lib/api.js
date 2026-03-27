@@ -12,12 +12,13 @@ async function parseBody(res) {
 
 async function request(path, options = {}, getToken) {
   const token = typeof getToken === 'function' ? await getToken() : null;
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
   const res = await fetch(`${API_ROOT}${path}`, {
     credentials: 'include',
     ...options,
     headers: {
-      'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
       ...(options.headers || {}),
     },
   });
@@ -43,9 +44,25 @@ export function createApiClient(getToken) {
       return request('/admin/books', { method: 'GET' }, getToken);
     },
     importBook(payload) {
+      const formData = new FormData();
+      formData.set('title', String(payload?.title || ''));
+      formData.set('author', String(payload?.author || ''));
+      formData.set('language', String(payload?.language || 'en'));
+      formData.set('text', String(payload?.text || ''));
+      formData.set('generate_images', payload?.generate_images ? 'true' : 'false');
+      if (payload?.max_word_count !== undefined && payload?.max_word_count !== null) {
+        formData.set('max_word_count', String(payload.max_word_count));
+      }
+      if (payload?.text_file) {
+        formData.append('text_file', payload.text_file, payload.text_file.name || 'book.txt');
+      }
+      for (const file of payload?.ocr_files || []) {
+        formData.append('ocr_files', file, file.name || 'page.png');
+      }
+
       return request('/admin/books/import', {
         method: 'POST',
-        body: JSON.stringify(payload),
+        body: formData,
       }, getToken);
     },
     publishBook(bookId) {

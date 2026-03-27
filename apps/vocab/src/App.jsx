@@ -9,31 +9,13 @@ import {
 import { createApiClient } from './lib/api';
 import './App.css';
 
-function readFileAsText(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
-    reader.readAsText(file);
-  });
-}
-
-function readFilesAsDataUrls(files) {
-  const sortedFiles = [...files].sort((left, right) => (
+function sortFilesByName(files) {
+  return [...files].sort((left, right) => (
     String(left?.name || '').localeCompare(String(right?.name || ''), undefined, {
       numeric: true,
       sensitivity: 'base',
     })
   ));
-
-  return Promise.all(
-    sortedFiles.map((file) => new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result || ''));
-      reader.onerror = () => reject(reader.error || new Error('Failed to read file.'));
-      reader.readAsDataURL(file);
-    }))
-  );
 }
 
 function formatPercent(value) {
@@ -99,18 +81,13 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
     setNotice('');
 
     try {
-      let importedText = text.trim();
-      if (!importedText && textFile) {
-        importedText = (await readFileAsText(textFile)).trim();
-      }
-
-      const ocrImages = ocrFiles.length > 0 ? await readFilesAsDataUrls(ocrFiles) : [];
       await api.importBook({
         title,
         author,
         language,
-        text: importedText,
-        ocr_images: ocrImages,
+        text: text.trim(),
+        text_file: !text.trim() ? textFile : null,
+        ocr_files: sortFilesByName(ocrFiles),
         generate_images: generateImages,
       });
 

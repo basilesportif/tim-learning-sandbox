@@ -7,8 +7,12 @@ APP_NAME="$1"
 
 echo "🚀 Deploying to $SERVER..."
 
+# Clean generated build artifacts and lockfile noise on server before pull.
+# This preserves app data files while allowing the deployment checkout to fast-forward cleanly.
+ssh $SERVER "cd $REMOTE_PATH && git restore package-lock.json apps/*/package-lock.json apps/*/dist 2>/dev/null || true && git clean -fd apps/*/dist 2>/dev/null || true"
+
 # Pull latest code on server
-ssh $SERVER "cd $REMOTE_PATH && git pull"
+ssh $SERVER "cd $REMOTE_PATH && git pull --ff-only"
 
 # Sync root env before any remote build so Vite and Node can read Clerk/OpenAI keys
 if [ -f ".env" ]; then
