@@ -45,6 +45,7 @@ Server environment:
 - `OPENAI_API_KEY`
 
 Large vocab book imports are queued and processed in the background so OCR-heavy uploads do not hit CDN/proxy request timeouts.
+Vocab books now keep a larger ranked word pool, and child sessions pull from easier or harder parts of that pool as performance changes.
 
 Artifact extraction for vocab books:
 
@@ -53,6 +54,12 @@ npm run vocab:extract-artifacts -- --book-id=<book-id>
 ```
 
 This scans stored OCR page images under `apps/vocab/data/books/<book-id>/pages/`, crops illustration artifacts into `artifacts/`, and records them back on the book.
+
+To rebuild the ranked word pool for existing vocab books from stored source text:
+
+```bash
+npm run vocab:reprocess-pools -- --book-id=<book-id>
+```
 
 Frontend environment for the Vite app:
 - `VITE_CLERK_PUBLISHABLE_KEY`

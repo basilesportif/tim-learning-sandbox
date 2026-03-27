@@ -7,7 +7,8 @@
     "start": "node server/index.js",
     "dev": "node server/index.js",
     "sync:ukraine:sources": "node scripts/sync-ukraine-sources.mjs",
-    "vocab:extract-artifacts": "node scripts/extract-vocab-book-artifacts.mjs"
+    "vocab:extract-artifacts": "node scripts/extract-vocab-book-artifacts.mjs",
+    "vocab:reprocess-pools": "node scripts/reprocess-vocab-book-pools.mjs"
   },
   "dependencies": {
     "@clerk/express": "^2.0.7",

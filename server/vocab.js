@@ -9,6 +9,11 @@ const APP_NAME = 'vocab';
 const DEFAULT_MAX_NEW_WORDS = 8;
 const DEFAULT_MAX_REVIEW_WORDS = 12;
 const DEFAULT_SESSION_MINUTES = 7;
+const DEFAULT_BOOK_WORD_POOL_SIZE = 240;
+const MIN_BOOK_WORD_POOL_SIZE = 24;
+const MAX_BOOK_WORD_POOL_SIZE = 600;
+const WORD_METADATA_BATCH_SIZE = 12;
+const MAX_GENERATED_WORD_IMAGES_PER_BOOK = 24;
 const REVIEW_INTERVAL_DAYS = [1, 3, 7, 14, 28];
 const COMMON_WORDS = new Set([
   'about', 'after', 'again', 'along', 'always', 'another', 'around', 'asked', 'because',
@@ -307,7 +312,7 @@ function sendAuthConfigError(res) {
   });
 }
 
-function extractCandidateWords(text, limit = 24) {
+function extractCandidateWords(text, limit = DEFAULT_BOOK_WORD_POOL_SIZE) {
   const words = new Map();
   const sentences = sanitizeText(text)
     .split(/(?<=[.!?])\s+/)
@@ -443,6 +448,74 @@ function getUploadedFiles(req, fieldName) {
   return Array.isArray(req.files[fieldName]) ? req.files[fieldName] : [];
 }
 
+function getBookWordPool(book) {
+  const pool = Array.isArray(book?.word_pool) && book.word_pool.length > 0
+    ? book.word_pool
+    : (Array.isArray(book?.word_pool_ids) && book.word_pool_ids.length > 0
+        ? book.word_pool_ids.map((wordId, index) => ({ word_id: wordId, rank: index + 1 }))
+        : (Array.isArray(book?.word_ids) ? book.word_ids : []).map((wordId, index) => ({ word_id: wordId, rank: index + 1 })));
+
+  return pool
+    .filter((entry) => entry?.word_id)
+    .sort((left, right) => (
+      (Number(left?.rank) || Number.MAX_SAFE_INTEGER) - (Number(right?.rank) || Number.MAX_SAFE_INTEGER)
+    ));
+}
+
+function getBookWordIds(book) {
+  return unique(getBookWordPool(book).map((entry) => entry.word_id));
+}
+
+function getAssignmentWordIds(assignment, book) {
+  return unique([
+    ...(Array.isArray(assignment?.target_word_ids) ? assignment.target_word_ids : []),
+    ...getBookWordIds(book),
+  ]);
+}
+
+function getAssignmentWordEntries(assignment, book, wordCatalogById) {
+  const bookPoolByWordId = new Map(getBookWordPool(book).map((entry, index) => [
+    entry.word_id,
+    {
+      ...entry,
+      rank: Number(entry.rank) || index + 1,
+    },
+  ]));
+
+  return getAssignmentWordIds(assignment, book)
+    .map((wordId, index) => {
+      const poolEntry = bookPoolByWordId.get(wordId) || {
+        word_id: wordId,
+        rank: index + 1,
+        count: 0,
+        heuristic_score: 0,
+      };
+      return {
+        ...poolEntry,
+        word: wordCatalogById[wordId],
+      };
+    })
+    .filter((entry) => entry.word)
+    .sort((left, right) => {
+      if ((left.rank || Number.MAX_SAFE_INTEGER) !== (right.rank || Number.MAX_SAFE_INTEGER)) {
+        return (left.rank || Number.MAX_SAFE_INTEGER) - (right.rank || Number.MAX_SAFE_INTEGER);
+      }
+      return (left.word?.lemma || '').localeCompare(right.word?.lemma || '');
+    });
+}
+
+function buildBookWordPoolEntry(candidate, wordRecord, rank) {
+  return {
+    word_id: wordRecord.id,
+    lemma: candidate.lemma,
+    rank,
+    count: candidate.count,
+    heuristic_score: candidate.heuristic_score,
+    snippets: candidate.snippets.slice(0, 3),
+    difficulty_band: wordRecord.difficulty_band,
+  };
+}
+
 function sortImportJobs(importJobs) {
   return [...(Array.isArray(importJobs) ? importJobs : [])].sort((left, right) => (
     new Date(right?.updated_at || right?.created_at || 0).getTime()
@@ -486,23 +559,46 @@ function updateImportJob(importJobsPath, jobId, updater) {
   return updatedJobs.find((job) => job.id === jobId) || null;
 }
 
-async function enrichWordMetadataWithAI(candidate, bookTitle) {
+function normalizeWordMetadataResult(candidate, parsed) {
+  const fallback = fallbackWordMetadata(candidate);
+
+  return {
+    difficultyBand: clamp(Number(parsed?.difficultyBand) || heuristicDifficultyBand(candidate.lemma, candidate.count), 1, 6),
+    definition: String(parsed?.definition || '').trim() || fallback.definition,
+    hint: String(parsed?.hint || '').trim() || fallback.hint,
+    distractors: normalizeChoiceSet(parsed?.definition, Array.isArray(parsed?.distractors) ? parsed.distractors : []).slice(1, 4),
+    imagePrompt: String(parsed?.imagePrompt || '').trim() || fallback.imagePrompt,
+    needsReview: Boolean(parsed?.needsReview),
+  };
+}
+
+async function enrichWordMetadataBatchWithAI(candidates, bookTitle) {
+  const entries = Array.isArray(candidates) ? candidates.filter(Boolean) : [];
+  if (entries.length === 0) {
+    return {};
+  }
+
   const client = getOpenAIClient();
   if (!client) {
-    return fallbackWordMetadata(candidate);
+    return Object.fromEntries(entries.map((candidate) => [candidate.lemma, fallbackWordMetadata(candidate)]));
   }
 
   const prompt = [
     'You are preparing vocabulary practice for children.',
-    'Return JSON with keys: difficultyBand, definition, hint, distractors, imagePrompt, needsReview.',
+    'Return one JSON object with a single key called words.',
+    'words must be an array with one item for each requested lemma.',
+    'Each item must have keys: lemma, difficultyBand, definition, hint, distractors, imagePrompt, needsReview.',
     'difficultyBand must be an integer from 1 to 6.',
     'definition must be short, concrete, and child-friendly.',
     'hint must guide the child without giving away the answer.',
     'distractors must be an array of exactly 3 plausible but wrong meanings.',
     'needsReview must be true if the meaning is ambiguous or the word is hard to teach with one definition.',
+    'Use each lemma exactly as given.',
     `Book title: ${bookTitle}`,
-    `Word: ${candidate.lemma}`,
-    `Context snippets: ${candidate.snippets.join(' | ')}`,
+    'Words to define:',
+    ...entries.map((candidate) => (
+      `- lemma: ${candidate.lemma}; snippets: ${candidate.snippets.join(' | ')}`
+    )),
   ].join('\n');
 
   try {
@@ -519,21 +615,30 @@ async function enrichWordMetadataWithAI(candidate, bookTitle) {
     });
 
     const parsed = extractFirstJsonObject(response.output_text);
-    if (!parsed) {
-      return fallbackWordMetadata(candidate);
+    const items = Array.isArray(parsed?.words) ? parsed.words : [];
+    const metadataByLemma = new Map();
+
+    for (const item of items) {
+      const lemma = String(item?.lemma || '').trim().toLowerCase();
+      const candidate = entries.find((entry) => entry.lemma === lemma);
+      if (!candidate) {
+        continue;
+      }
+      metadataByLemma.set(candidate.lemma, normalizeWordMetadataResult(candidate, item));
     }
 
-    return {
-      difficultyBand: clamp(Number(parsed.difficultyBand) || heuristicDifficultyBand(candidate.lemma, candidate.count), 1, 6),
-      definition: String(parsed.definition || '').trim() || fallbackWordMetadata(candidate).definition,
-      hint: String(parsed.hint || '').trim() || fallbackWordMetadata(candidate).hint,
-      distractors: normalizeChoiceSet(parsed.definition, Array.isArray(parsed.distractors) ? parsed.distractors : []).slice(1, 4),
-      imagePrompt: String(parsed.imagePrompt || '').trim() || fallbackWordMetadata(candidate).imagePrompt,
-      needsReview: Boolean(parsed.needsReview),
-    };
+    return Object.fromEntries(entries.map((candidate) => [
+      candidate.lemma,
+      metadataByLemma.get(candidate.lemma) || fallbackWordMetadata(candidate),
+    ]));
   } catch {
-    return fallbackWordMetadata(candidate);
+    return Object.fromEntries(entries.map((candidate) => [candidate.lemma, fallbackWordMetadata(candidate)]));
   }
+}
+
+async function enrichWordMetadataWithAI(candidate, bookTitle) {
+  const metadataByLemma = await enrichWordMetadataBatchWithAI([candidate], bookTitle);
+  return metadataByLemma[candidate.lemma] || fallbackWordMetadata(candidate);
 }
 
 async function transcribeImage(dataUrl) {
@@ -607,6 +712,127 @@ function shapeWordRecord(candidate, metadata, bookId, imagesDir, generatedImageF
   };
 }
 
+function removeBookFromWordCatalog(wordCatalog, bookId) {
+  for (const word of wordCatalog) {
+    word.source_books = (word.source_books || []).filter((sourceBookId) => sourceBookId !== bookId);
+  }
+}
+
+async function buildWordPoolForText({
+  store,
+  bookId,
+  bookTitle,
+  combinedText,
+  maxWordCount = DEFAULT_BOOK_WORD_POOL_SIZE,
+  generateImages = false,
+  imagesDir,
+  onProgress = null,
+}) {
+  const candidates = extractCandidateWords(combinedText, maxWordCount);
+  const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
+  const wordIds = [];
+  const wordPool = [];
+  let generatedImageCount = 0;
+
+  if (typeof onProgress === 'function') {
+    onProgress({
+      step: 'vocabulary',
+      wordTotal: candidates.length,
+      wordCompleted: 0,
+      message: `Preparing ${candidates.length} pool words.`,
+    });
+  }
+
+  for (let batchStart = 0; batchStart < candidates.length; batchStart += WORD_METADATA_BATCH_SIZE) {
+    const batch = candidates.slice(batchStart, batchStart + WORD_METADATA_BATCH_SIZE);
+    const candidatesNeedingMetadata = batch.filter((candidate) => {
+      const existing = wordCatalogById[`word_${slugify(candidate.lemma)}`];
+      return !existing
+        || !existing.definition
+        || !existing.hint
+        || !Array.isArray(existing.distractors)
+        || existing.distractors.length < 3;
+    });
+    const metadataByLemma = await enrichWordMetadataBatchWithAI(candidatesNeedingMetadata, bookTitle);
+
+    for (let batchIndex = 0; batchIndex < batch.length; batchIndex += 1) {
+      const candidate = batch[batchIndex];
+      const overallIndex = batchStart + batchIndex;
+      const wordId = `word_${slugify(candidate.lemma)}`;
+      let wordRecord = wordCatalogById[wordId];
+      let generatedImageFile = null;
+      const refreshedMetadata = metadataByLemma[candidate.lemma] || null;
+
+      if (typeof onProgress === 'function') {
+        onProgress({
+          step: 'vocabulary',
+          wordTotal: candidates.length,
+          wordCompleted: overallIndex,
+          message: `Preparing word ${overallIndex + 1} of ${candidates.length}: ${candidate.lemma}.`,
+        });
+      }
+
+      if (!wordRecord) {
+        const metadata = refreshedMetadata || fallbackWordMetadata(candidate);
+        if (generateImages && generatedImageCount < MAX_GENERATED_WORD_IMAGES_PER_BOOK) {
+          generatedImageFile = await maybeGenerateWordImage(metadata.imagePrompt, wordId, imagesDir);
+          if (generatedImageFile) {
+            generatedImageCount += 1;
+          }
+        }
+        wordRecord = shapeWordRecord(candidate, metadata, bookId, imagesDir, generatedImageFile);
+        store.wordCatalog.push(wordRecord);
+        wordCatalogById[wordId] = wordRecord;
+      } else {
+        wordRecord.source_books = unique([...(wordRecord.source_books || []), bookId]);
+        wordRecord.count_in_book = Math.max(Number(wordRecord.count_in_book) || 0, candidate.count);
+        wordRecord.snippets = unique([...(wordRecord.snippets || []), ...candidate.snippets]).slice(0, 4);
+        if (refreshedMetadata) {
+          const definitionChoices = normalizeChoiceSet(refreshedMetadata.definition, refreshedMetadata.distractors || []);
+          wordRecord.difficulty_band = clamp(
+            Number(wordRecord.difficulty_band) || Number(refreshedMetadata.difficultyBand) || heuristicDifficultyBand(candidate.lemma, candidate.count),
+            1,
+            6
+          );
+          wordRecord.definition = String(wordRecord.definition || '').trim() || refreshedMetadata.definition;
+          wordRecord.hint = String(wordRecord.hint || '').trim() || refreshedMetadata.hint;
+          if (!Array.isArray(wordRecord.distractors) || wordRecord.distractors.length < 3) {
+            wordRecord.distractors = definitionChoices.filter((choice) => choice !== refreshedMetadata.definition).slice(0, 3);
+          }
+          wordRecord.image_prompt = String(wordRecord.image_prompt || '').trim() || refreshedMetadata.imagePrompt;
+          wordRecord.needs_review = Boolean(wordRecord.needs_review || refreshedMetadata.needsReview);
+          if (!wordRecord.image_path && generateImages && generatedImageCount < MAX_GENERATED_WORD_IMAGES_PER_BOOK) {
+            generatedImageFile = await maybeGenerateWordImage(refreshedMetadata.imagePrompt, wordId, imagesDir);
+            if (generatedImageFile) {
+              generatedImageCount += 1;
+              wordRecord.image_path = join(imagesDir, generatedImageFile);
+            }
+          }
+        }
+        wordRecord.updated_at = nowIso();
+      }
+
+      wordIds.push(wordRecord.id);
+      wordPool.push(buildBookWordPoolEntry(candidate, wordRecord, overallIndex + 1));
+
+      if (typeof onProgress === 'function') {
+        onProgress({
+          step: 'vocabulary',
+          wordTotal: candidates.length,
+          wordCompleted: overallIndex + 1,
+          message: `Prepared word ${overallIndex + 1} of ${candidates.length}: ${candidate.lemma}.`,
+        });
+      }
+    }
+  }
+
+  return {
+    candidates,
+    wordIds,
+    wordPool,
+  };
+}
+
 function normalizeAssignmentSettings(input = {}) {
   return {
     hints_enabled: input.hints_enabled !== false,
@@ -672,8 +898,8 @@ function ensureChildProfile(profiles, user) {
   return nextProfile;
 }
 
-function summarizeChildProgress(profile, assignment) {
-  const progressEntries = assignment.target_word_ids.map((wordId) => profile.word_progress?.[wordId]).filter(Boolean);
+function summarizeChildProgress(profile, assignment, book) {
+  const progressEntries = getAssignmentWordIds(assignment, book).map((wordId) => profile.word_progress?.[wordId]).filter(Boolean);
   const mastered = progressEntries.filter((entry) => entry.state === 'mastered').length;
   const due = progressEntries.filter((entry) => entry.due_at && new Date(entry.due_at).getTime() <= Date.now()).length;
   const learning = progressEntries.filter((entry) => entry.state !== 'mastered').length;
@@ -682,46 +908,57 @@ function summarizeChildProgress(profile, assignment) {
     mastered_count: mastered,
     due_count: due,
     learning_count: learning,
-    total_target_words: assignment.target_word_ids.length,
+    total_target_words: getAssignmentWordIds(assignment, book).length,
   };
 }
 
-function pickReviewWords(profile, wordCatalogById, candidateWordIds, limit) {
-  return candidateWordIds
-    .map((wordId) => ({
-      word: wordCatalogById[wordId],
-      progress: profile.word_progress?.[wordId],
+function pickReviewWords(profile, candidateEntries, limit) {
+  return candidateEntries
+    .map((entry) => ({
+      ...entry,
+      progress: profile.word_progress?.[entry.word.id],
     }))
     .filter((entry) => entry.word && entry.progress?.due_at && new Date(entry.progress.due_at).getTime() <= Date.now())
-    .sort((a, b) => new Date(a.progress.due_at).getTime() - new Date(b.progress.due_at).getTime())
+    .sort((a, b) => {
+      const dueDelta = new Date(a.progress.due_at).getTime() - new Date(b.progress.due_at).getTime();
+      if (dueDelta !== 0) {
+        return dueDelta;
+      }
+      return (a.rank || Number.MAX_SAFE_INTEGER) - (b.rank || Number.MAX_SAFE_INTEGER);
+    })
     .slice(0, limit)
     .map((entry) => entry.word);
 }
 
-function pickNewWords(profile, wordCatalogById, candidateWordIds, limit) {
+function pickNewWords(profile, candidateEntries, limit) {
   const targetBand = Number(profile.target_band) || 2;
 
-  const candidates = candidateWordIds
-    .map((wordId) => wordCatalogById[wordId])
-    .filter(Boolean)
-    .filter((word) => {
-      const progress = profile.word_progress?.[word.id];
+  const candidates = candidateEntries
+    .filter((entry) => entry.word)
+    .filter((entry) => {
+      const progress = profile.word_progress?.[entry.word.id];
       return !progress || progress.state !== 'mastered';
     })
-    .filter((word) => {
-      const progress = profile.word_progress?.[word.id];
+    .filter((entry) => {
+      const progress = profile.word_progress?.[entry.word.id];
       return !progress || !progress.due_at;
     })
     .sort((a, b) => {
-      const distanceA = Math.abs((a.difficulty_band || 1) - targetBand);
-      const distanceB = Math.abs((b.difficulty_band || 1) - targetBand);
+      const distanceA = Math.abs((a.word.difficulty_band || 1) - targetBand);
+      const distanceB = Math.abs((b.word.difficulty_band || 1) - targetBand);
       if (distanceA !== distanceB) {
         return distanceA - distanceB;
       }
-      return (a.lemma || '').localeCompare(b.lemma || '');
+      if ((a.rank || Number.MAX_SAFE_INTEGER) !== (b.rank || Number.MAX_SAFE_INTEGER)) {
+        return (a.rank || Number.MAX_SAFE_INTEGER) - (b.rank || Number.MAX_SAFE_INTEGER);
+      }
+      if ((b.count || 0) !== (a.count || 0)) {
+        return (b.count || 0) - (a.count || 0);
+      }
+      return (a.word.lemma || '').localeCompare(b.word.lemma || '');
     });
 
-  return candidates.slice(0, limit);
+  return candidates.slice(0, limit).map((entry) => entry.word);
 }
 
 function buildCard(word, assignment, imageUrl) {
@@ -873,11 +1110,7 @@ function makeWordCatalogIndex(wordCatalog) {
   return Object.fromEntries(wordCatalog.map((word) => [word.id, word]));
 }
 
-export function setupVocabApiRoutes(app, appName, dataPath) {
-  if (appName !== APP_NAME) {
-    return;
-  }
-
+function resolveVocabStorage(dataPath) {
   const booksDir = join(dataPath, 'books');
   const imagesDir = join(dataPath, 'images');
   const booksPath = join(dataPath, 'books.json');
@@ -886,22 +1119,99 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
   const assignmentsPath = join(dataPath, 'assignments.json');
   const sessionsPath = join(dataPath, 'sessions.json');
   const importJobsPath = join(dataPath, 'import_jobs.json');
-  const paths = {
-    booksPath,
-    wordCatalogPath,
-    profilesPath,
-    assignmentsPath,
-    sessionsPath,
-  };
 
-  fs.mkdirSync(booksDir, { recursive: true });
-  fs.mkdirSync(imagesDir, { recursive: true });
-  ensureJsonFile(booksPath, []);
-  ensureJsonFile(wordCatalogPath, []);
-  ensureJsonFile(profilesPath, {});
-  ensureJsonFile(assignmentsPath, []);
-  ensureJsonFile(sessionsPath, []);
-  ensureJsonFile(importJobsPath, []);
+  return {
+    booksDir,
+    imagesDir,
+    importJobsPath,
+    paths: {
+      booksPath,
+      wordCatalogPath,
+      profilesPath,
+      assignmentsPath,
+      sessionsPath,
+    },
+  };
+}
+
+function ensureVocabStorage(storage) {
+  fs.mkdirSync(storage.booksDir, { recursive: true });
+  fs.mkdirSync(storage.imagesDir, { recursive: true });
+  ensureJsonFile(storage.paths.booksPath, []);
+  ensureJsonFile(storage.paths.wordCatalogPath, []);
+  ensureJsonFile(storage.paths.profilesPath, {});
+  ensureJsonFile(storage.paths.assignmentsPath, []);
+  ensureJsonFile(storage.paths.sessionsPath, []);
+  ensureJsonFile(storage.importJobsPath, []);
+}
+
+export async function reprocessVocabBookPools({
+  dataPath,
+  bookId = null,
+  limit = null,
+}) {
+  const storage = resolveVocabStorage(dataPath);
+  ensureVocabStorage(storage);
+
+  const store = readStore(storage.paths);
+  const targetBooks = store.books
+    .filter((book) => !bookId || book.id === bookId)
+    .filter((book) => book.text_path && fs.existsSync(book.text_path))
+    .slice(0, limit || store.books.length);
+  const results = [];
+
+  for (const book of targetBooks) {
+    const sourceText = sanitizeText(fs.readFileSync(book.text_path, 'utf-8'));
+    const maxWordCount = clamp(
+      Number(book.settings?.max_word_count) || DEFAULT_BOOK_WORD_POOL_SIZE,
+      MIN_BOOK_WORD_POOL_SIZE,
+      MAX_BOOK_WORD_POOL_SIZE
+    );
+
+    removeBookFromWordCatalog(store.wordCatalog, book.id);
+    const { wordIds, wordPool } = await buildWordPoolForText({
+      store,
+      bookId: book.id,
+      bookTitle: book.title,
+      combinedText: sourceText,
+      maxWordCount,
+      generateImages: Boolean(book.settings?.generate_images),
+      imagesDir: storage.imagesDir,
+    });
+
+    book.word_ids = wordIds;
+    book.word_pool_ids = wordIds;
+    book.word_pool = wordPool;
+    book.settings = {
+      ...(book.settings || {}),
+      max_word_count: maxWordCount,
+    };
+    book.updated_at = nowIso();
+
+    results.push({
+      book_id: book.id,
+      title: book.title,
+      word_pool_count: wordIds.length,
+    });
+  }
+
+  writeStore(storage.paths, store);
+  return results;
+}
+
+export function setupVocabApiRoutes(app, appName, dataPath) {
+  if (appName !== APP_NAME) {
+    return;
+  }
+
+  const storage = resolveVocabStorage(dataPath);
+  ensureVocabStorage(storage);
+  const {
+    booksDir,
+    imagesDir,
+    importJobsPath,
+    paths,
+  } = storage;
 
   const clerkEnabled = Boolean(process.env.CLERK_SECRET_KEY && process.env.CLERK_PUBLISHABLE_KEY);
   const adminEmails = normalizeEmailList(process.env.VOCAB_ADMIN_EMAILS);
@@ -997,57 +1307,25 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       const pageImages = saveOcrPageImages(bookId, ocrImageEntries, booksDir);
       const sourceFileName = `${bookId}.txt`;
       fs.writeFileSync(join(booksDir, sourceFileName), combinedText, 'utf-8');
-
-      const candidates = extractCandidateWords(combinedText, maxWordCount);
-      const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
-      const wordIds = [];
-
-      updateImportJob(importJobsPath, jobId, (job) => ({
-        ...job,
-        status: 'processing',
-        step: 'vocabulary',
-        message: `Preparing ${candidates.length} target words.`,
-        word_total: candidates.length,
-        word_completed: 0,
-      }));
-
-      for (let index = 0; index < candidates.length; index += 1) {
-        const candidate = candidates[index];
-        const existing = wordCatalogById[`word_${slugify(candidate.lemma)}`];
-        let generatedImageFile = null;
-        let wordRecord = existing;
-
-        updateImportJob(importJobsPath, jobId, (job) => ({
-          ...job,
-          status: 'processing',
-          step: 'vocabulary',
-          message: `Preparing word ${index + 1} of ${candidates.length}: ${candidate.lemma}.`,
-          word_total: candidates.length,
-          word_completed: index,
-        }));
-
-        if (!wordRecord) {
-          const metadata = await enrichWordMetadataWithAI(candidate, title);
-          if (generateImages) {
-            generatedImageFile = await maybeGenerateWordImage(metadata.imagePrompt, `word_${slugify(candidate.lemma)}`, imagesDir);
-          }
-          wordRecord = shapeWordRecord(candidate, metadata, bookId, imagesDir, generatedImageFile);
-          store.wordCatalog.push(wordRecord);
-        } else {
-          wordRecord.source_books = unique([...(wordRecord.source_books || []), bookId]);
-          wordRecord.count_in_book = Math.max(Number(wordRecord.count_in_book) || 0, candidate.count);
-          wordRecord.snippets = unique([...(wordRecord.snippets || []), ...candidate.snippets]).slice(0, 4);
-          wordRecord.updated_at = createdAt;
-        }
-
-        wordIds.push(wordRecord.id);
-
-        updateImportJob(importJobsPath, jobId, (job) => ({
-          ...job,
-          word_total: candidates.length,
-          word_completed: index + 1,
-        }));
-      }
+      const { wordIds, wordPool } = await buildWordPoolForText({
+        store,
+        bookId,
+        bookTitle: title,
+        combinedText,
+        maxWordCount,
+        generateImages,
+        imagesDir,
+        onProgress: ({ message, wordTotal, wordCompleted }) => {
+          updateImportJob(importJobsPath, jobId, (job) => ({
+            ...job,
+            status: 'processing',
+            step: 'vocabulary',
+            message,
+            word_total: wordTotal,
+            word_completed: wordCompleted,
+          }));
+        },
+      });
 
       const book = {
         id: bookId,
@@ -1057,6 +1335,8 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
         status: 'draft',
         text_path: join(booksDir, sourceFileName),
         word_ids: wordIds,
+        word_pool_ids: wordIds,
+        word_pool: wordPool,
         word_count: combinedText.split(/\s+/).filter(Boolean).length,
         page_images: pageImages,
         artifacts: [],
@@ -1065,6 +1345,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
         updated_at: createdAt,
         settings: {
           generate_images: generateImages,
+          max_word_count: maxWordCount,
         },
       };
 
@@ -1072,14 +1353,14 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       writeStore(paths, store);
 
       console.log(
-        `[vocab] Imported "${title}" with ${pageImages.length} page images and ${wordIds.length} target words.`
+        `[vocab] Imported "${title}" with ${pageImages.length} page images and ${wordIds.length} pool words.`
       );
 
       updateImportJob(importJobsPath, jobId, (job) => ({
         ...job,
         status: 'completed',
         step: 'complete',
-        message: `Imported "${title}" with ${wordIds.length} target words.`,
+        message: `Imported "${title}" with ${wordIds.length} pool words.`,
         finished_at: nowIso(),
         duration_ms: Date.now() - startedAt,
         book_id: bookId,
@@ -1179,12 +1460,14 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     res.json({
       books: store.books.map((book) => ({
         ...book,
+        word_ids: getBookWordIds(book),
+        word_pool_ids: getBookWordIds(book),
         page_images: book.page_images || [],
         artifacts: (book.artifacts || []).map((artifact) => ({
           ...artifact,
           asset_url: createArtifactAssetUrl(appName, book.id, artifact.id),
         })),
-        words: book.word_ids.map((wordId) => wordCatalogById[wordId]).filter(Boolean),
+        words: getBookWordIds(book).map((wordId) => wordCatalogById[wordId]).filter(Boolean),
       })),
       word_catalog: store.wordCatalog,
       import_jobs: sortImportJobs(readJson(importJobsPath, [])).slice(0, 12),
@@ -1233,7 +1516,11 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
         const textFileText = textFile ? sanitizeText(textFile.buffer?.toString('utf-8') || '') : '';
         const importedText = manualText || textFileText;
         const generateImages = parseBooleanField(req.body?.generate_images);
-        const maxWordCount = clamp(Number(req.body?.max_word_count) || 24, 8, 60);
+        const maxWordCount = clamp(
+          Number(req.body?.max_word_count) || DEFAULT_BOOK_WORD_POOL_SIZE,
+          MIN_BOOK_WORD_POOL_SIZE,
+          MAX_BOOK_WORD_POOL_SIZE
+        );
 
         if (!title) {
           res.status(400).json({ error: 'title_required', message: 'Title is required.' });
@@ -1326,10 +1613,13 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
             ...profile,
             ...computeProfileBuckets(profile),
           },
-          assignments: activeAssignments.map((assignment) => ({
-            ...assignment,
-            progress: summarizeChildProgress(profile, assignment),
-          })),
+          assignments: activeAssignments.map((assignment) => {
+            const book = store.books.find((item) => item.id === assignment.book_id);
+            return {
+              ...assignment,
+              progress: summarizeChildProgress(profile, assignment, book),
+            };
+          }),
         };
       }),
     });
@@ -1353,7 +1643,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       id: `assignment_${crypto.randomUUID()}`,
       book_id: book.id,
       child_user_id: childUserId,
-      target_word_ids: [...book.word_ids],
+      target_word_ids: [...getBookWordIds(book)],
       status: 'active',
       settings: normalizeAssignmentSettings(req.body?.settings),
       created_by: req.vocabUser.user_id,
@@ -1384,7 +1674,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
             language: book.language,
             status: book.status,
           } : null,
-          progress: summarizeChildProgress(profile, assignment),
+          progress: summarizeChildProgress(profile, assignment, book),
         };
       })
       .filter((assignment) => assignment.book?.status === 'published');
@@ -1417,8 +1707,9 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     writeJson(profilesPath, store.profiles);
 
     const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
-    const reviewWords = pickReviewWords(profile, wordCatalogById, assignment.target_word_ids, assignment.settings.max_review_words);
-    const newWords = pickNewWords(profile, wordCatalogById, assignment.target_word_ids, assignment.settings.max_new_words);
+    const assignmentWordEntries = getAssignmentWordEntries(assignment, book, wordCatalogById);
+    const reviewWords = pickReviewWords(profile, assignmentWordEntries, assignment.settings.max_review_words);
+    const newWords = pickNewWords(profile, assignmentWordEntries, assignment.settings.max_new_words);
     const selectedWords = unique([...reviewWords, ...newWords].map((word) => word.id))
       .map((wordId) => wordCatalogById[wordId])
       .filter(Boolean)

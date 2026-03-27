@@ -7,6 +7,7 @@ Private vocabulary prep for books.
 - Admin signs in with Clerk and imports books from pasted text, `.txt`, or page photos
 - OCR page photos are processed in filename order, so names like `001.jpg`, `002.jpg`, `003.jpg` control page order
 - Book imports run as background jobs so large OCR batches do not time out the browser request
+- Each book stores a larger ranked word pool, and child sessions pull easier or harder words from that pool based on performance
 - Book source text is stored server-side only for admin use
 - Child users sign in with Clerk and see only their own assignments
 - Sessions use multiple-choice meaning checks, optional hints, optional illustrations, and light spaced repetition
@@ -58,3 +59,11 @@ npm run vocab:extract-artifacts -- --book-id=<book-id>
 Optional flags:
 - `--force` to reprocess pages that were already scanned for artifacts
 - `--limit=<n>` to cap how many books are processed in one run
+
+## Reprocess Book Word Pools
+
+To rebuild the ranked word pool for existing books from their stored source text:
+
+```bash
+npm run vocab:reprocess-pools -- --book-id=<book-id>
+```
