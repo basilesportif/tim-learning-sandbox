@@ -44,3 +44,15 @@ Run the shared server from the repo root:
 npm install
 npm run dev
 ```
+
+## Extract Stored Book Images
+
+OCR page uploads are now retained per book. To extract illustration artifacts from those stored page images:
+
+```bash
+npm run vocab:extract-artifacts -- --book-id=<book-id>
+```
+
+Optional flags:
+- `--force` to reprocess pages that were already scanned for artifacts
+- `--limit=<n>` to cap how many books are processed in one run

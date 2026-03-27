@@ -44,6 +44,14 @@ Server environment:
 - `VOCAB_CHILD_EMAILS`
 - `OPENAI_API_KEY`
 
+Artifact extraction for vocab books:
+
+```bash
+npm run vocab:extract-artifacts -- --book-id=<book-id>
+```
+
+This scans stored OCR page images under `apps/vocab/data/books/<book-id>/pages/`, crops illustration artifacts into `artifacts/`, and records them back on the book.
+
 Frontend environment for the Vite app:
 - `VITE_CLERK_PUBLISHABLE_KEY`
 

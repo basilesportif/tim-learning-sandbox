@@ -6,11 +6,13 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node server/index.js",
-    "sync:ukraine:sources": "node scripts/sync-ukraine-sources.mjs"
+    "sync:ukraine:sources": "node scripts/sync-ukraine-sources.mjs",
+    "vocab:extract-artifacts": "node scripts/extract-vocab-book-artifacts.mjs"
   },
   "dependencies": {
     "@clerk/express": "^2.0.7",
     "express": "^4.18.2",
-    "openai": "^6.8.0"
+    "openai": "^6.8.0",
+    "sharp": "^0.34.4"
   }
 }

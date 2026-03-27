@@ -54,6 +54,33 @@ function parseDataUrl(dataUrl) {
   };
 }
 
+function mimeTypeToExtension(mimeType) {
+  switch (String(mimeType || '').toLowerCase()) {
+    case 'image/jpeg':
+      return 'jpg';
+    case 'image/webp':
+      return 'webp';
+    case 'image/gif':
+      return 'gif';
+    default:
+      return 'png';
+  }
+}
+
+function extensionToMimeType(extension) {
+  switch (String(extension || '').toLowerCase()) {
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'webp':
+      return 'image/webp';
+    case 'gif':
+      return 'image/gif';
+    default:
+      return 'image/png';
+  }
+}
+
 function ensureJsonFile(filePath, fallbackValue) {
   if (fs.existsSync(filePath)) {
     return;
@@ -106,6 +133,50 @@ function slugify(value) {
 
 function unique(values) {
   return [...new Set(values)];
+}
+
+function ensureBookAssetDirectories(booksDir, bookId) {
+  const bookDir = join(booksDir, bookId);
+  const pagesDir = join(bookDir, 'pages');
+  const artifactsDir = join(bookDir, 'artifacts');
+  fs.mkdirSync(bookDir, { recursive: true });
+  fs.mkdirSync(pagesDir, { recursive: true });
+  fs.mkdirSync(artifactsDir, { recursive: true });
+  return {
+    bookDir,
+    pagesDir,
+    artifactsDir,
+  };
+}
+
+function saveOcrPageImages(bookId, ocrImages, booksDir) {
+  if (!Array.isArray(ocrImages) || ocrImages.length === 0) {
+    return [];
+  }
+
+  const { pagesDir } = ensureBookAssetDirectories(booksDir, bookId);
+
+  return ocrImages
+    .map((dataUrl, index) => {
+      const parsed = parseDataUrl(dataUrl);
+      if (!parsed) {
+        return null;
+      }
+
+      const pageId = `page_${String(index + 1).padStart(3, '0')}`;
+      const extension = mimeTypeToExtension(parsed.mimeType);
+      const filePath = join(pagesDir, `${pageId}.${extension}`);
+      fs.writeFileSync(filePath, parsed.buffer);
+
+      return {
+        id: pageId,
+        page_index: index + 1,
+        mime_type: parsed.mimeType,
+        image_path: filePath,
+        created_at: nowIso(),
+      };
+    })
+    .filter(Boolean);
 }
 
 function inferDisplayName(user) {
@@ -329,6 +400,10 @@ function extractFirstJsonObject(text) {
       return null;
     }
   }
+}
+
+function createArtifactAssetUrl(appName, bookId, artifactId) {
+  return `/${appName}/api/admin/books/${encodeURIComponent(bookId)}/artifacts/${encodeURIComponent(artifactId)}`;
 }
 
 async function enrichWordMetadataWithAI(candidate, bookTitle) {
@@ -827,6 +902,11 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     res.json({
       books: store.books.map((book) => ({
         ...book,
+        page_images: book.page_images || [],
+        artifacts: (book.artifacts || []).map((artifact) => ({
+          ...artifact,
+          asset_url: createArtifactAssetUrl(appName, book.id, artifact.id),
+        })),
         words: book.word_ids.map((wordId) => wordCatalogById[wordId]).filter(Boolean),
       })),
       word_catalog: store.wordCatalog,
@@ -870,6 +950,8 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     const store = readStore(paths);
     const createdAt = nowIso();
     const bookId = `book_${slugify(title)}_${crypto.randomUUID().slice(0, 8)}`;
+    ensureBookAssetDirectories(booksDir, bookId);
+    const pageImages = saveOcrPageImages(bookId, ocrImages, booksDir);
     const sourceFileName = `${bookId}.txt`;
     fs.writeFileSync(join(booksDir, sourceFileName), combinedText, 'utf-8');
 
@@ -908,6 +990,8 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       text_path: join(booksDir, sourceFileName),
       word_ids: wordIds,
       word_count: combinedText.split(/\s+/).filter(Boolean).length,
+      page_images: pageImages,
+      artifacts: [],
       created_by: req.vocabUser.user_id,
       created_at: createdAt,
       updated_at: createdAt,
@@ -923,6 +1007,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       book,
       words: wordIds.map((wordId) => makeWordCatalogIndex(store.wordCatalog)[wordId]).filter(Boolean),
       imported_word_count: wordIds.length,
+      imported_page_image_count: pageImages.length,
     });
   });
 
@@ -1188,5 +1273,18 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     }
 
     res.sendFile(word.image_path);
+  });
+
+  app.get(`/${appName}/api/admin/books/:bookId/artifacts/:artifactId`, requireAdmin, (req, res) => {
+    const books = readJson(booksPath, []);
+    const book = books.find((item) => item.id === req.params.bookId);
+    const artifact = book?.artifacts?.find((item) => item.id === req.params.artifactId);
+
+    if (!artifact?.image_path || !fs.existsSync(artifact.image_path)) {
+      res.status(404).json({ error: 'artifact_not_found' });
+      return;
+    }
+
+    res.sendFile(artifact.image_path);
   });
 }

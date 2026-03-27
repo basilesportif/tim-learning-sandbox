@@ -317,7 +317,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
                   <span className={`status-pill status-${book.status}`}>{book.status}</span>
                 </div>
                 <p>
-                  {book.word_ids.length} target words • {book.word_count} words in source
+                  {book.word_ids.length} target words • {book.word_count} words in source • {book.page_images?.length || 0} page images • {book.artifacts?.length || 0} artifacts
                 </p>
                 <div className="token-row">
                   {book.words.slice(0, 8).map((word) => (
