@@ -9,7 +9,14 @@ echo "🚀 Deploying to $SERVER..."
 
 # Clean generated build artifacts and lockfile noise on server before pull.
 # This preserves app data files while allowing the deployment checkout to fast-forward cleanly.
-ssh $SERVER "cd $REMOTE_PATH && git restore package-lock.json apps/*/package-lock.json apps/*/dist 2>/dev/null || true && git clean -fd apps/*/dist 2>/dev/null || true"
+ssh $SERVER "cd $REMOTE_PATH && bash -lc '
+  shopt -s nullglob
+  lockfiles=(package-lock.json apps/*/package-lock.json)
+  dist_dirs=(apps/*/dist)
+  [ \${#lockfiles[@]} -gt 0 ] && git restore -- \"\${lockfiles[@]}\" 2>/dev/null || true
+  [ \${#dist_dirs[@]} -gt 0 ] && git restore -- \"\${dist_dirs[@]}\" 2>/dev/null || true
+  [ \${#dist_dirs[@]} -gt 0 ] && git clean -fd -- \"\${dist_dirs[@]}\" 2>/dev/null || true
+'"
 
 # Pull latest code on server
 ssh $SERVER "cd $REMOTE_PATH && git pull --ff-only"
@@ -23,14 +30,14 @@ fi
 # Install dependencies and build
 if [ -n "$APP_NAME" ]; then
     echo "📦 Building app: $APP_NAME"
-    ssh $SERVER "cd $REMOTE_PATH/apps/$APP_NAME && npm install && npm run build"
+    ssh $SERVER "cd $REMOTE_PATH/apps/$APP_NAME && npm ci && npm run build"
 else
     echo "📦 Building all apps..."
-    ssh $SERVER "cd $REMOTE_PATH && npm install"
+    ssh $SERVER "cd $REMOTE_PATH && npm ci"
     for app in apps/*/; do
         app_name=$(basename "$app")
         echo "  Building $app_name..."
-        ssh $SERVER "cd $REMOTE_PATH/apps/$app_name && npm install && npm run build"
+        ssh $SERVER "cd $REMOTE_PATH/apps/$app_name && npm ci && npm run build"
     done
 fi
 
