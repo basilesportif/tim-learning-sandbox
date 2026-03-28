@@ -131,6 +131,11 @@ function average(values) {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+function toTimestamp(value) {
+  const ts = new Date(value || '').getTime();
+  return Number.isFinite(ts) ? ts : null;
+}
+
 function slugify(value) {
   return String(value || '')
     .toLowerCase()
@@ -502,7 +507,32 @@ function getAssignmentWordIds(assignment, book) {
   ]);
 }
 
-function getAssignmentWordEntries(assignment, book, wordCatalogById) {
+function getWordReadyAt(progress) {
+  if (!progress) {
+    return null;
+  }
+  return toTimestamp(progress.due_at);
+}
+
+function isWordDue(progress, now = Date.now()) {
+  const readyAt = getWordReadyAt(progress);
+  return readyAt !== null && readyAt <= now;
+}
+
+function getMatchingActiveSessions(childUserId, assignmentId) {
+  return [...activeSessions.values()]
+    .filter((session) => session.child_user_id === childUserId && session.assignment_id === assignmentId)
+    .sort((left, right) => (
+      (toTimestamp(right.updated_at || right.started_at) || 0)
+      - (toTimestamp(left.updated_at || left.started_at) || 0)
+    ));
+}
+
+function getRemainingSessionCards(session) {
+  return (session?.cards || []).filter((card) => !session.completed_word_ids?.has(card.word_id));
+}
+
+function getWordEntriesForIds(wordIds, book, wordCatalogById) {
   const bookPoolByWordId = new Map(getBookWordPool(book).map((entry, index) => [
     entry.word_id,
     {
@@ -511,7 +541,7 @@ function getAssignmentWordEntries(assignment, book, wordCatalogById) {
     },
   ]));
 
-  return getAssignmentWordIds(assignment, book)
+  return unique(Array.isArray(wordIds) ? wordIds : [])
     .map((wordId, index) => {
       const poolEntry = bookPoolByWordId.get(wordId) || {
         word_id: wordId,
@@ -531,6 +561,10 @@ function getAssignmentWordEntries(assignment, book, wordCatalogById) {
       }
       return (left.word?.lemma || '').localeCompare(right.word?.lemma || '');
     });
+}
+
+function getAssignmentWordEntries(assignment, book, wordCatalogById) {
+  return getWordEntriesForIds(getAssignmentWordIds(assignment, book), book, wordCatalogById);
 }
 
 function buildBookWordPoolEntry(candidate, wordRecord, rank) {
@@ -940,7 +974,7 @@ function ensureChildProfile(profiles, user) {
 function summarizeChildProgress(profile, assignment, book) {
   const progressEntries = getAssignmentWordIds(assignment, book).map((wordId) => profile.word_progress?.[wordId]).filter(Boolean);
   const mastered = progressEntries.filter((entry) => entry.state === 'mastered').length;
-  const due = progressEntries.filter((entry) => entry.due_at && new Date(entry.due_at).getTime() <= Date.now()).length;
+  const due = progressEntries.filter((entry) => isWordDue(entry)).length;
   const learning = progressEntries.filter((entry) => entry.state !== 'mastered').length;
 
   return {
@@ -952,14 +986,16 @@ function summarizeChildProgress(profile, assignment, book) {
 }
 
 function pickReviewWords(profile, candidateEntries, limit) {
+  const now = Date.now();
+
   return candidateEntries
     .map((entry) => ({
       ...entry,
       progress: profile.word_progress?.[entry.word.id],
     }))
-    .filter((entry) => entry.word && entry.progress?.due_at && new Date(entry.progress.due_at).getTime() <= Date.now())
+    .filter((entry) => entry.word && isWordDue(entry.progress, now))
     .sort((a, b) => {
-      const dueDelta = new Date(a.progress.due_at).getTime() - new Date(b.progress.due_at).getTime();
+      const dueDelta = (getWordReadyAt(a.progress) || 0) - (getWordReadyAt(b.progress) || 0);
       if (dueDelta !== 0) {
         return dueDelta;
       }
@@ -980,7 +1016,7 @@ function pickNewWords(profile, candidateEntries, limit) {
     })
     .filter((entry) => {
       const progress = profile.word_progress?.[entry.word.id];
-      return !progress || !progress.due_at;
+      return !progress || getWordReadyAt(progress) === null;
     })
     .sort((a, b) => {
       const distanceA = Math.abs((a.word.difficulty_band || 1) - targetBand);
@@ -1018,6 +1054,54 @@ function buildCard(word, assignment, imageUrl) {
   };
 }
 
+function rebuildSessionCards(session, assignment, book, profile, wordCatalogById) {
+  session.completed_word_ids = session.completed_word_ids instanceof Set
+    ? session.completed_word_ids
+    : new Set(Array.isArray(session.completed_word_ids) ? session.completed_word_ids : []);
+  session.candidate_word_ids = unique(
+    Array.isArray(session.candidate_word_ids) && session.candidate_word_ids.length > 0
+      ? session.candidate_word_ids
+      : getAssignmentWordIds(assignment, book)
+  );
+
+  const remainingEntries = getWordEntriesForIds(
+    session.candidate_word_ids.filter((wordId) => !session.completed_word_ids.has(wordId)),
+    book,
+    wordCatalogById
+  );
+  const reviewWords = pickReviewWords(profile, remainingEntries, remainingEntries.length);
+  const reviewWordIds = new Set(reviewWords.map((word) => word.id));
+  const newWords = pickNewWords(
+    profile,
+    remainingEntries.filter((entry) => !reviewWordIds.has(entry.word?.id)),
+    remainingEntries.length
+  );
+  const selectedWords = unique([...reviewWords, ...newWords].map((word) => word.id))
+    .map((wordId) => wordCatalogById[wordId])
+    .filter(Boolean);
+
+  session.cards = selectedWords.map((word) => buildCard(
+    word,
+    assignment,
+    word.image_path ? `/${APP_NAME}/api/word-images/${encodeURIComponent(word.id)}` : null
+  ));
+  session.updated_at = nowIso();
+  return session.cards;
+}
+
+function buildSessionPayload(session, assignment) {
+  return {
+    id: session.id,
+    assignment_id: session.assignment_id,
+    started_at: session.started_at,
+    cards: session.cards,
+    answered_count: session.completed_word_ids.size,
+    total_cards: session.completed_word_ids.size + session.cards.length,
+    limits: assignment.settings,
+    resumed: session.completed_word_ids.size > 0,
+  };
+}
+
 function buildImmediateWordSummary(answerEvent) {
   return {
     word_id: answerEvent.word_id,
@@ -1031,7 +1115,7 @@ function buildImmediateWordSummary(answerEvent) {
   };
 }
 
-function summarizeResponses(answerEvents, cardsByWordId) {
+function summarizeResponses(answerEvents, wordCatalogById) {
   const perWord = new Map();
 
   for (const event of answerEvents) {
@@ -1059,7 +1143,7 @@ function summarizeResponses(answerEvents, cardsByWordId) {
     ...entry,
     average_response_ms: Math.round(average(entry.response_ms_values)),
     assisted: entry.hint_used,
-    card: cardsByWordId[entry.word_id],
+    word: wordCatalogById[entry.word_id],
   }));
 }
 
@@ -1783,51 +1867,50 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
 
     const profile = ensureChildProfile(store.profiles, req.vocabUser);
     writeJson(paths.profilesPath, store.profiles);
-
     const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
-    const assignmentWordEntries = getAssignmentWordEntries(assignment, book, wordCatalogById);
-    const reviewWords = pickReviewWords(profile, assignmentWordEntries, assignmentWordEntries.length);
-    const reviewWordIds = new Set(reviewWords.map((word) => word.id));
-    const newWords = pickNewWords(
-      profile,
-      assignmentWordEntries.filter((entry) => !reviewWordIds.has(entry.word?.id)),
-      assignmentWordEntries.length
-    );
-    const selectedWords = unique([...reviewWords, ...newWords].map((word) => word.id))
-      .map((wordId) => wordCatalogById[wordId])
-      .filter(Boolean);
 
-    if (selectedWords.length === 0) {
-      res.status(409).json({ error: 'no_words_ready' });
-      return;
+    const matchingSessions = getMatchingActiveSessions(req.vocabUser.user_id, assignment.id);
+    if (matchingSessions.length > 0) {
+      const [activeSession, ...staleSessions] = matchingSessions;
+      for (const staleSession of staleSessions) {
+        activeSessions.delete(staleSession.id);
+      }
+
+      rebuildSessionCards(activeSession, assignment, book, profile, wordCatalogById);
+      if (activeSession.cards.length > 0) {
+        res.json({
+          session: buildSessionPayload(activeSession, assignment),
+        });
+        return;
+      }
+
+      activeSessions.delete(activeSession.id);
     }
 
-    const cards = selectedWords.map((word) => buildCard(
-      word,
-      assignment,
-      word.image_path ? `/${appName}/api/word-images/${encodeURIComponent(word.id)}` : null
-    ));
-
     const sessionId = `session_${crypto.randomUUID()}`;
-    activeSessions.set(sessionId, {
+    const session = {
       id: sessionId,
       assignment_id: assignment.id,
       child_user_id: req.vocabUser.user_id,
       book_id: assignment.book_id,
       started_at: nowIso(),
-      cards,
+      updated_at: nowIso(),
+      candidate_word_ids: getAssignmentWordIds(assignment, book),
+      cards: [],
       answers: [],
       completed_word_ids: new Set(),
-    });
+    };
+    rebuildSessionCards(session, assignment, book, profile, wordCatalogById);
+
+    if (session.cards.length === 0) {
+      res.status(409).json({ error: 'no_words_ready' });
+      return;
+    }
+
+    activeSessions.set(sessionId, session);
 
     res.json({
-      session: {
-        id: sessionId,
-        assignment_id: assignment.id,
-        started_at: nowIso(),
-        cards,
-        limits: assignment.settings,
-      },
+      session: buildSessionPayload(session, assignment),
     });
   });
 
@@ -1866,6 +1949,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
 
     session.answers.push(event);
     session.completed_word_ids.add(wordId);
+    session.updated_at = nowIso();
 
     const store = readStore(paths);
     const profile = ensureChildProfile(store.profiles, req.vocabUser);
@@ -1885,8 +1969,19 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     store.profiles[req.vocabUser.user_id] = profile;
     writeJson(paths.profilesPath, store.profiles);
 
+    const assignment = store.assignments.find((item) => item.id === session.assignment_id && item.child_user_id === req.vocabUser.user_id && item.status === 'active');
+    const book = store.books.find((item) => item.id === session.book_id);
+    const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
+
+    if (assignment && book) {
+      rebuildSessionCards(session, assignment, book, profile, wordCatalogById);
+    } else {
+      session.cards = getRemainingSessionCards(session);
+    }
+
     res.json({
       answer: event,
+      session: assignment ? buildSessionPayload(session, assignment) : null,
       profile: {
         ...profile,
         ...computeProfileBuckets(profile),
@@ -1903,8 +1998,8 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
 
     const store = readStore(paths);
     const profile = ensureChildProfile(store.profiles, req.vocabUser);
-    const cardsByWordId = Object.fromEntries(session.cards.map((card) => [card.word_id, card]));
-    const wordSummaries = summarizeResponses(session.answers, cardsByWordId);
+    const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
+    const wordSummaries = summarizeResponses(session.answers, wordCatalogById);
 
     const sessionSummary = {
       id: session.id,
@@ -1916,7 +2011,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       answers: session.answers,
       words: wordSummaries.map((summary) => ({
         word_id: summary.word_id,
-        lemma: summary.card?.lemma || '',
+        lemma: summary.word?.lemma || '',
         final_correct: summary.final_correct,
         attempts: summary.attempts,
         hint_used: summary.hint_used,

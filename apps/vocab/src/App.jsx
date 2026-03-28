@@ -860,17 +860,18 @@ export default function App() {
 
     try {
       const data = await api.startSession({ assignment_id: assignmentId });
+      const cards = data.session.cards || [];
       startTimeRef.current = Date.now();
       setSessionState({
         id: data.session.id,
-        cards: data.session.cards,
-        queue: data.session.cards.map((card) => card.word_id),
+        cards,
+        queue: cards.map((card) => card.word_id),
         activeAnswer: null,
         feedback: null,
         pendingAdvance: null,
         currentCardIndex: 0,
-        totalCards: data.session.cards.length,
-        answeredCount: 0,
+        totalCards: data.session.total_cards || cards.length,
+        answeredCount: data.session.answered_count || 0,
         hintVisible: false,
         summary: null,
         profile: null,
@@ -927,11 +928,13 @@ export default function App() {
 
       const nextState = {
         ...current,
+        cards: current.pendingAdvance.nextCards,
         queue: current.pendingAdvance.nextQueue,
         activeAnswer: null,
         feedback: null,
-        answeredCount: current.answeredCount + 1,
+        answeredCount: current.pendingAdvance.nextAnsweredCount,
         currentCardIndex: current.pendingAdvance.nextCardIndex,
+        totalCards: current.pendingAdvance.nextTotalCards,
         hintVisible: false,
         pendingAdvance: null,
       };
@@ -980,39 +983,43 @@ export default function App() {
           profile: result.profile,
         } : current);
       }
+
+      const nextCards = result?.session?.cards || [];
+      const nextQueue = nextCards.map((nextCard) => nextCard.word_id);
+      const shouldFinish = nextCards.length === 0;
+      const nextAnsweredCount = result?.session?.answered_count ?? ((sessionState.answeredCount || 0) + 1);
+      const nextTotalCards = result?.session?.total_cards ?? (nextAnsweredCount + nextCards.length);
+
+      clearAdvanceTimer();
+      setSessionState((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          activeAnswer: {
+            wordId,
+            ...answer,
+          },
+          feedback: {
+            kind: correct ? 'right' : 'wrong',
+            correctChoice: card.choices[card.correct_index],
+          },
+          pendingAdvance: {
+            nextCards,
+            nextQueue,
+            nextCardIndex: 0,
+            shouldFinish,
+            nextAnsweredCount,
+            nextTotalCards,
+          },
+        };
+      });
     } catch (error) {
       setError(error.message || 'Could not save the answer.');
       return;
     }
-
-    const nextQueue = [...sessionState.queue];
-    nextQueue.splice(sessionState.currentCardIndex, 1);
-    const nextCardIndex = nextQueue.length === 0 ? 0 : Math.min(sessionState.currentCardIndex, nextQueue.length - 1);
-    const shouldFinish = nextQueue.length === 0;
-
-    clearAdvanceTimer();
-    setSessionState((current) => {
-      if (!current) {
-        return current;
-      }
-
-      return {
-        ...current,
-        activeAnswer: {
-          wordId,
-          ...answer,
-        },
-        feedback: {
-          kind: correct ? 'right' : 'wrong',
-          correctChoice: card.choices[card.correct_index],
-        },
-        pendingAdvance: {
-          nextQueue,
-          nextCardIndex,
-          shouldFinish,
-        },
-      };
-    });
 
     if (correct) {
       advanceTimerRef.current = window.setTimeout(() => {
