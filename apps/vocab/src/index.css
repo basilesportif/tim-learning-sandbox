@@ -3,12 +3,7 @@
   line-height: 1.5;
   font-weight: 400;
   color: #2f2618;
-  background:
-    radial-gradient(circle at top left, rgba(233, 201, 127, 0.32), transparent 34%),
-    radial-gradient(circle at bottom right, rgba(135, 178, 146, 0.28), transparent 28%),
-    linear-gradient(180deg, #f4efe4, #e5ddd1 56%, #ddd7cc);
-  background-size: 200% 200%;
-  animation: drift-bg 25s ease-in-out infinite alternate;
+  background: linear-gradient(180deg, #f4efe4, #e5ddd1 56%, #ddd7cc);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -56,7 +51,3 @@ code {
   font-weight: 700;
 }
 
-@keyframes drift-bg {
-  0% { background-position: 0% 0%; }
-  100% { background-position: 100% 100%; }
-}

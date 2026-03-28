@@ -1,6 +1,20 @@
 .app-shell {
   min-height: 100vh;
   color: var(--ink-strong);
+  position: relative;
+}
+
+.app-shell::before {
+  content: '';
+  position: fixed;
+  inset: -10%;
+  z-index: -1;
+  background:
+    radial-gradient(circle at 30% 20%, rgba(233, 201, 127, 0.32), transparent 34%),
+    radial-gradient(circle at 70% 80%, rgba(135, 178, 146, 0.28), transparent 28%);
+  animation: drift-bg 25s ease-in-out infinite alternate;
+  will-change: transform;
+  pointer-events: none;
 }
 
 .app-main {
@@ -699,14 +713,76 @@
     grid-template-columns: 1fr;
   }
 
-  .choice-grid,
+  .shell-header {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 600px) {
+  .app-main {
+    padding: 0.75rem 0 2rem;
+  }
+
+  .shell-header {
+    padding: 1rem;
+    border-radius: 20px;
+  }
+
+  .panel {
+    padding: 1rem;
+    border-radius: 18px;
+  }
+
+  .choice-grid {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .choice-button {
+    min-height: 64px;
+    font-size: 0.95rem;
+    padding: 0.65rem 0.8rem 0.65rem 2.6rem;
+  }
+
+  .choice-button::before {
+    width: 24px;
+    height: 24px;
+    font-size: 0.75rem;
+    left: 0.6rem;
+  }
+
+  .word-card h2 {
+    font-size: clamp(1.8rem, 8vw, 2.5rem);
+  }
+
   .metric-row {
     grid-template-columns: 1fr;
   }
 
-  .shell-header {
-    flex-direction: column;
+  .metric-card p {
+    font-size: 1.6rem;
   }
+
+  .session-complete .panel-chip {
+    font-size: 1.3rem;
+  }
+
+  .hero-panel h1 {
+    font-size: 1.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes drift-bg {
+  0% { transform: translate(0, 0); }
+  100% { transform: translate(5%, 5%); }
 }
 
 @keyframes fade-up {
