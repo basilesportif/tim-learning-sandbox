@@ -366,6 +366,43 @@
   margin: 0.75rem 0;
 }
 
+.assignment-admin-list {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+}
+
+.assignment-admin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.8rem 0.9rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(75, 63, 40, 0.08);
+}
+
+.assignment-admin-title,
+.assignment-admin-meta {
+  margin: 0;
+}
+
+.assignment-admin-title {
+  font-weight: 700;
+  color: var(--ink-strong);
+}
+
+.assignment-admin-meta {
+  margin-top: 0.2rem;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+}
+
+.assignment-admin-button {
+  flex-shrink: 0;
+}
+
 .token {
   background: rgba(227, 233, 212, 0.98);
   color: #345236;
@@ -761,6 +798,15 @@
 
   .metric-card p {
     font-size: 1.6rem;
+  }
+
+  .assignment-admin-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .assignment-admin-button {
+    width: 100%;
   }
 
   .session-complete .panel-chip {

@@ -1617,6 +1617,12 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
             const book = store.books.find((item) => item.id === assignment.book_id);
             return {
               ...assignment,
+              book: book ? {
+                id: book.id,
+                title: book.title,
+                author: book.author,
+                status: book.status,
+              } : null,
               progress: summarizeChildProgress(profile, assignment, book),
             };
           }),
@@ -1652,6 +1658,24 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     };
 
     store.assignments.unshift(assignment);
+    writeJson(paths.assignmentsPath, store.assignments);
+    res.json({ assignment });
+  });
+
+  app.patch(`/${appName}/api/admin/assignments/:assignmentId`, requireAdmin, (req, res) => {
+    const store = readStore(paths);
+    const assignment = store.assignments.find((item) => item.id === req.params.assignmentId);
+    if (!assignment) {
+      res.status(404).json({ error: 'assignment_not_found' });
+      return;
+    }
+
+    assignment.settings = normalizeAssignmentSettings({
+      ...(assignment.settings || {}),
+      ...(req.body?.settings || {}),
+    });
+    assignment.updated_at = nowIso();
+
     writeJson(paths.assignmentsPath, store.assignments);
     res.json({ assignment });
   });

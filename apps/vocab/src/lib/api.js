@@ -83,6 +83,12 @@ export function createApiClient(getToken) {
         body: JSON.stringify(payload),
       }, getToken);
     },
+    updateAssignment(assignmentId, payload) {
+      return request(`/admin/assignments/${encodeURIComponent(assignmentId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }, getToken);
+    },
     getAssignments() {
       return request('/assignments/current', { method: 'GET' }, getToken);
     },

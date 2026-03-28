@@ -91,6 +91,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   const [enableImages, setEnableImages] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [assignBusy, setAssignBusy] = useState(false);
+  const [updatingAssignmentId, setUpdatingAssignmentId] = useState('');
   const [importJobs, setImportJobs] = useState(adminData.importJobs || []);
   const [trackedImportJobId, setTrackedImportJobId] = useState('');
 
@@ -230,6 +231,27 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
       setError(error.message || 'Assignment failed.');
     } finally {
       setAssignBusy(false);
+    }
+  }
+
+  async function handleToggleAssignmentHints(assignment) {
+    setUpdatingAssignmentId(assignment.id);
+    setError('');
+    setNotice('');
+
+    try {
+      await api.updateAssignment(assignment.id, {
+        settings: {
+          ...(assignment.settings || {}),
+          hints_enabled: !assignment.settings?.hints_enabled,
+        },
+      });
+      setNotice(`Hints ${assignment.settings?.hints_enabled ? 'disabled' : 'enabled'} for ${assignment.book?.title || 'the assignment'}.`);
+      await onReload();
+    } catch (error) {
+      setError(error.message || 'Could not update assignment settings.');
+    } finally {
+      setUpdatingAssignmentId('');
     }
   }
 
@@ -466,6 +488,32 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
                 <p>
                   Active assignments: {child.assignments.length}
                 </p>
+                {child.assignments.length > 0 ? (
+                  <div className="assignment-admin-list">
+                    {child.assignments.map((assignment) => (
+                      <div key={assignment.id} className="assignment-admin-row">
+                        <div>
+                          <p className="assignment-admin-title">{assignment.book?.title || 'Assigned book'}</p>
+                          <p className="assignment-admin-meta">
+                            Hints {assignment.settings?.hints_enabled ? 'on' : 'off'} • Images {assignment.settings?.images_enabled ? 'on' : 'off'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className="ghost-button assignment-admin-button"
+                          onClick={() => handleToggleAssignmentHints(assignment)}
+                          disabled={updatingAssignmentId === assignment.id}
+                        >
+                          {updatingAssignmentId === assignment.id
+                            ? 'Saving…'
+                            : assignment.settings?.hints_enabled
+                              ? 'Disable Hints'
+                              : 'Enable Hints'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </article>
             ))
           )}
