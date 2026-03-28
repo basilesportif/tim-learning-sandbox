@@ -15,6 +15,8 @@ const MAX_BOOK_WORD_POOL_SIZE = 600;
 const WORD_METADATA_BATCH_SIZE = 12;
 const MAX_GENERATED_WORD_IMAGES_PER_BOOK = 24;
 const REVIEW_INTERVAL_DAYS = [1, 3, 7, 14, 28];
+const WRONG_RETRY_MINUTES = 15;
+const ASSISTED_REVIEW_HOURS = 12;
 const COMMON_WORDS = new Set([
   'about', 'after', 'again', 'along', 'always', 'another', 'around', 'asked', 'because',
   'before', 'being', 'below', 'between', 'called', 'could', 'every', 'first', 'found',
@@ -977,6 +979,19 @@ function buildCard(word, assignment, imageUrl) {
   };
 }
 
+function buildImmediateWordSummary(answerEvent) {
+  return {
+    word_id: answerEvent.word_id,
+    attempts: 1,
+    wrong_attempts: answerEvent.correct ? 0 : 1,
+    hint_used: Boolean(answerEvent.hint_used),
+    response_ms_values: [Number(answerEvent.response_ms) || 0],
+    final_correct: Boolean(answerEvent.correct),
+    average_response_ms: Number(answerEvent.response_ms) || 0,
+    assisted: Boolean(answerEvent.hint_used),
+  };
+}
+
 function summarizeResponses(answerEvents, cardsByWordId) {
   const perWord = new Map();
 
@@ -1045,11 +1060,11 @@ function updateWordProgress(existing, wordSummary) {
   } else if (wordSummary.final_correct && wordSummary.assisted) {
     next.state = 'learning';
     next.stage_index = Math.max(current.stage_index ?? -1, 0);
-    next.due_at = new Date(Date.now() + (24 * 60 * 60 * 1000)).toISOString();
+    next.due_at = new Date(Date.now() + (ASSISTED_REVIEW_HOURS * 60 * 60 * 1000)).toISOString();
   } else {
     next.state = 'learning';
     next.stage_index = Math.max((current.stage_index ?? 0) - 1, 0);
-    next.due_at = new Date(Date.now() + (24 * 60 * 60 * 1000)).toISOString();
+    next.due_at = new Date(Date.now() + (WRONG_RETRY_MINUTES * 60 * 1000)).toISOString();
   }
 
   return next;
@@ -1732,12 +1747,16 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
 
     const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
     const assignmentWordEntries = getAssignmentWordEntries(assignment, book, wordCatalogById);
-    const reviewWords = pickReviewWords(profile, assignmentWordEntries, assignment.settings.max_review_words);
-    const newWords = pickNewWords(profile, assignmentWordEntries, assignment.settings.max_new_words);
+    const reviewWords = pickReviewWords(profile, assignmentWordEntries, assignmentWordEntries.length);
+    const reviewWordIds = new Set(reviewWords.map((word) => word.id));
+    const newWords = pickNewWords(
+      profile,
+      assignmentWordEntries.filter((entry) => !reviewWordIds.has(entry.word?.id)),
+      assignmentWordEntries.length
+    );
     const selectedWords = unique([...reviewWords, ...newWords].map((word) => word.id))
       .map((wordId) => wordCatalogById[wordId])
-      .filter(Boolean)
-      .slice(0, assignment.settings.max_new_words + assignment.settings.max_review_words);
+      .filter(Boolean);
 
     if (selectedWords.length === 0) {
       res.status(409).json({ error: 'no_words_ready' });
@@ -1759,6 +1778,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       started_at: nowIso(),
       cards,
       answers: [],
+      completed_word_ids: new Set(),
     });
 
     res.json({
@@ -1790,17 +1810,49 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       return;
     }
 
+    if (session.completed_word_ids.has(wordId)) {
+      res.status(409).json({ error: 'card_already_answered' });
+      return;
+    }
+
     const event = {
       word_id: wordId,
       selected_index: selectedIndex,
       correct: selectedIndex === card.correct_index,
       hint_used: hintUsed,
       response_ms: responseMs,
+      correct_choice: card.choices[card.correct_index],
       ts: nowIso(),
     };
 
     session.answers.push(event);
-    res.json({ answer: event });
+    session.completed_word_ids.add(wordId);
+
+    const store = readStore(paths);
+    const profile = ensureChildProfile(store.profiles, req.vocabUser);
+    const wordSummary = buildImmediateWordSummary(event);
+    profile.word_progress[wordId] = updateWordProgress(profile.word_progress[wordId], wordSummary);
+
+    const rollingUpdate = updateRollingBand(profile, [event]);
+    profile.rolling_answers = rollingUpdate.rolling_answers;
+    profile.target_band = rollingUpdate.target_band;
+    profile.stats = {
+      ...profile.stats,
+      ...rollingUpdate.stats,
+      total_sessions: Number(profile.stats?.total_sessions || 0),
+    };
+    profile.updated_at = nowIso();
+
+    store.profiles[req.vocabUser.user_id] = profile;
+    writeJson(paths.profilesPath, store.profiles);
+
+    res.json({
+      answer: event,
+      profile: {
+        ...profile,
+        ...computeProfileBuckets(profile),
+      },
+    });
   });
 
   app.post(`/${appName}/api/sessions/:sessionId/complete`, requireChild, (req, res) => {
@@ -1814,19 +1866,6 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     const profile = ensureChildProfile(store.profiles, req.vocabUser);
     const cardsByWordId = Object.fromEntries(session.cards.map((card) => [card.word_id, card]));
     const wordSummaries = summarizeResponses(session.answers, cardsByWordId);
-
-    for (const summary of wordSummaries) {
-      profile.word_progress[summary.word_id] = updateWordProgress(profile.word_progress[summary.word_id], summary);
-    }
-
-    const rollingUpdate = updateRollingBand(profile, session.answers);
-    profile.rolling_answers = rollingUpdate.rolling_answers;
-    profile.target_band = rollingUpdate.target_band;
-    profile.stats = {
-      ...rollingUpdate.stats,
-      total_sessions: Number(profile.stats?.total_sessions || 0) + 1,
-    };
-    profile.updated_at = nowIso();
 
     const sessionSummary = {
       id: session.id,
@@ -1845,7 +1884,14 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
         average_response_ms: summary.average_response_ms,
       })),
       accuracy: Number(average(session.answers.map((item) => item.correct ? 1 : 0)).toFixed(2)),
+      status: 'completed',
     };
+
+    profile.stats = {
+      ...profile.stats,
+      total_sessions: Number(profile.stats?.total_sessions || 0) + (session.answers.length > 0 ? 1 : 0),
+    };
+    profile.updated_at = nowIso();
 
     store.profiles[req.vocabUser.user_id] = profile;
     store.sessions.unshift(sessionSummary);

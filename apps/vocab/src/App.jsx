@@ -523,7 +523,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   );
 }
 
-function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHint }) {
+function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHint, onDismissFeedback, onStopSession }) {
   const currentWordId = sessionState?.queue?.[sessionState.currentCardIndex] || null;
   const currentCard = currentWordId
     ? sessionState?.cards?.find((card) => card.word_id === currentWordId) || null
@@ -531,6 +531,10 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
   const currentAnswer = currentCard && sessionState?.activeAnswer?.wordId === currentCard.word_id
     ? sessionState.activeAnswer
     : null;
+  const visibleAnsweredCount = (sessionState?.answeredCount || 0) + (sessionState?.feedback ? 1 : 0);
+  const visibleRemainingCount = sessionState?.pendingAdvance
+    ? sessionState.pendingAdvance.nextQueue.length
+    : (sessionState?.queue?.length || 0);
 
   if (sessionState?.summary) {
     return (
@@ -558,15 +562,20 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
     return (
       <section className="panel child-session-panel">
         <div className="session-progress">
-          <p className="eyebrow">Live Session</p>
+          <div className="session-progress-head">
+            <p className="eyebrow">Live Session</p>
+            <button type="button" className="ghost-button session-stop-button" onClick={onStopSession}>
+              Stop
+            </button>
+          </div>
           <div className="progress-rail">
             <div
               className="progress-fill"
-              style={{ width: `${Math.max(8, Math.round((sessionState.completedCount / sessionState.totalCards) * 100))}%` }}
+              style={{ width: `${Math.max(8, Math.round((visibleAnsweredCount / sessionState.totalCards) * 100))}%` }}
             />
           </div>
           <p>
-            {sessionState.completedCount} solved • {sessionState.totalCards} cards in this run
+            {visibleAnsweredCount} answered • {visibleRemainingCount} left for now
           </p>
         </div>
 
@@ -596,7 +605,9 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
                 <button
                   key={`${currentCard.card_id}-${choice}`}
                   type="button"
-                  className={`choice-button ${isSelected ? `choice-${currentAnswer.correct ? 'correct' : 'wrong'}` : ''}`}
+                  className={`choice-button ${isSelected ? `choice-${currentAnswer.correct ? 'correct' : 'wrong'}` : ''} ${
+                    currentAnswer && index === currentCard.correct_index && !currentAnswer.correct ? 'choice-correct-reveal' : ''
+                  }`}
                   onClick={() => onSelectChoice(index)}
                   disabled={Boolean(currentAnswer)}
                 >
@@ -606,16 +617,34 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
             })}
           </div>
 
-          {currentAnswer ? (
-            <p className={`answer-feedback ${currentAnswer.correct ? 'answer-correct' : 'answer-wrong'}`}>
-              {currentAnswer.correct
-                ? currentAnswer.hintUsed
-                  ? 'Correct with a hint. It will stay in rotation.'
-                  : 'Correct. This card can move forward.'
-                : 'Not yet. This card will come back after a couple more.'}
-            </p>
+          {sessionState.feedback ? (
+            <div className={`session-feedback session-feedback-${sessionState.feedback.kind}`}>
+              <div>
+                <p className="session-feedback-title">
+                  {sessionState.feedback.kind === 'right' ? 'Right' : 'Wrong'}
+                </p>
+                {sessionState.feedback.kind === 'wrong' ? (
+                  <p className="session-feedback-copy">
+                    Right answer: <strong>{sessionState.feedback.correctChoice}</strong>
+                  </p>
+                ) : null}
+              </div>
+              {sessionState.feedback.kind === 'wrong' ? (
+                <button type="button" className="ghost-button session-feedback-button" onClick={onDismissFeedback}>
+                  Continue
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </article>
+      </section>
+    );
+  }
+
+  if (sessionState) {
+    return (
+      <section className="panel loading-panel">
+        <p>Wrapping up this session…</p>
       </section>
     );
   }
@@ -819,9 +848,11 @@ export default function App() {
         cards: data.session.cards,
         queue: data.session.cards.map((card) => card.word_id),
         activeAnswer: null,
+        feedback: null,
+        pendingAdvance: null,
         currentCardIndex: 0,
         totalCards: data.session.cards.length,
-        completedCount: 0,
+        answeredCount: 0,
         hintVisible: false,
         summary: null,
         profile: null,
@@ -845,6 +876,8 @@ export default function App() {
       return;
     }
 
+    clearAdvanceTimer();
+
     try {
       const result = await api.completeSession(sessionState.id, {});
       setSessionState((current) => current ? {
@@ -853,11 +886,47 @@ export default function App() {
         profile: result.profile,
         cards: [],
         currentCardIndex: 0,
+        activeAnswer: null,
+        feedback: null,
+        pendingAdvance: null,
       } : current);
       setChildData(await fetchChildData());
     } catch (error) {
       setError(error.message || 'Could not finish the session.');
     }
+  }
+
+  function dismissFeedback() {
+    clearAdvanceTimer();
+    let shouldFinish = false;
+
+    setSessionState((current) => {
+      if (!current || !current.pendingAdvance) {
+        return current;
+      }
+
+      shouldFinish = Boolean(current.pendingAdvance.shouldFinish);
+
+      const nextState = {
+        ...current,
+        queue: current.pendingAdvance.nextQueue,
+        activeAnswer: null,
+        feedback: null,
+        answeredCount: current.answeredCount + 1,
+        currentCardIndex: current.pendingAdvance.nextCardIndex,
+        hintVisible: false,
+        pendingAdvance: null,
+      };
+
+      return nextState;
+    });
+
+    if (shouldFinish) {
+      void finishSession();
+      return;
+    }
+
+    startTimeRef.current = Date.now();
   }
 
   async function selectChoice(selectedIndex) {
@@ -881,66 +950,58 @@ export default function App() {
     };
 
     try {
-      await api.answerSession(sessionState.id, {
+      const result = await api.answerSession(sessionState.id, {
         word_id: wordId,
         selected_index: selectedIndex,
         hint_used: sessionState.hintVisible,
         response_ms: responseMs,
       });
+      if (result?.profile) {
+        setChildData((current) => current ? {
+          ...current,
+          profile: result.profile,
+        } : current);
+      }
     } catch (error) {
       setError(error.message || 'Could not save the answer.');
       return;
     }
 
+    const nextQueue = [...sessionState.queue];
+    nextQueue.splice(sessionState.currentCardIndex, 1);
+    const nextCardIndex = nextQueue.length === 0 ? 0 : Math.min(sessionState.currentCardIndex, nextQueue.length - 1);
+    const shouldFinish = nextQueue.length === 0;
+
+    clearAdvanceTimer();
     setSessionState((current) => {
       if (!current) {
         return current;
       }
+
       return {
         ...current,
         activeAnswer: {
           wordId,
           ...answer,
         },
+        feedback: {
+          kind: correct ? 'right' : 'wrong',
+          correctChoice: card.choices[card.correct_index],
+        },
+        pendingAdvance: {
+          nextQueue,
+          nextCardIndex,
+          shouldFinish,
+        },
       };
     });
 
-    const nextQueue = [...sessionState.queue];
-    nextQueue.splice(sessionState.currentCardIndex, 1);
-    if (!correct) {
-      const insertAt = Math.min(sessionState.currentCardIndex + 2, nextQueue.length);
-      nextQueue.splice(insertAt, 0, wordId);
-    }
-
-    const nextCardIndex = nextQueue.length === 0 ? 0 : Math.min(sessionState.currentCardIndex, nextQueue.length - 1);
-    const shouldFinish = correct && nextQueue.length === 0;
-
-    clearAdvanceTimer();
-    advanceTimerRef.current = window.setTimeout(async () => {
-      if (shouldFinish) {
+    if (correct) {
+      advanceTimerRef.current = window.setTimeout(() => {
+        dismissFeedback();
         advanceTimerRef.current = 0;
-        await finishSession();
-        return;
-      }
-
-      setSessionState((current) => {
-        if (!current) {
-          return current;
-        }
-
-        return {
-          ...current,
-          queue: nextQueue,
-          activeAnswer: null,
-          completedCount: correct ? current.completedCount + 1 : current.completedCount,
-          currentCardIndex: nextCardIndex,
-          hintVisible: false,
-        };
-      });
-
-      startTimeRef.current = Date.now();
-      advanceTimerRef.current = 0;
-    }, 900);
+      }, 2000);
+    }
   }
 
   return (
@@ -991,6 +1052,8 @@ export default function App() {
               onStart={startSession}
               onSelectChoice={selectChoice}
               onShowHint={showHint}
+              onDismissFeedback={dismissFeedback}
+              onStopSession={finishSession}
             />
           ) : (
             <section className="panel loading-panel">
