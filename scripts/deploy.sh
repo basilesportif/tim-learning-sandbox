@@ -13,8 +13,17 @@ ssh $SERVER "cd $REMOTE_PATH && bash -lc '
   shopt -s nullglob
   lockfiles=(package-lock.json apps/*/package-lock.json)
   dist_dirs=(apps/*/dist)
-  [ \${#lockfiles[@]} -gt 0 ] && git restore -- \"\${lockfiles[@]}\" 2>/dev/null || true
-  [ \${#dist_dirs[@]} -gt 0 ] && git restore -- \"\${dist_dirs[@]}\" 2>/dev/null || true
+  tracked_dist_files=()
+
+  for dir in \"\${dist_dirs[@]}\"; do
+    [ -d \"\$dir\" ] || continue
+    while IFS= read -r tracked_file; do
+      tracked_dist_files+=(\"\$tracked_file\")
+    done < <(git ls-files \"\$dir\")
+  done
+
+  restore_paths=(\"\${lockfiles[@]}\" \"\${tracked_dist_files[@]}\")
+  [ \${#restore_paths[@]} -gt 0 ] && git restore -- \"\${restore_paths[@]}\" 2>/dev/null || true
   [ \${#dist_dirs[@]} -gt 0 ] && git clean -fd -- \"\${dist_dirs[@]}\" 2>/dev/null || true
 '"
 
