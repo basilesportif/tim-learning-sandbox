@@ -672,7 +672,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   );
 }
 
-function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHint, onDismissFeedback, onStopSession }) {
+function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHint, onDismissFeedback, onBackToAssignments }) {
   const currentWordId = sessionState?.queue?.[sessionState.currentCardIndex] || null;
   const currentCard = currentWordId
     ? sessionState?.cards?.find((card) => card.word_id === currentWordId) || null
@@ -680,10 +680,6 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
   const currentAnswer = currentCard && sessionState?.activeAnswer?.wordId === currentCard.word_id
     ? sessionState.activeAnswer
     : null;
-  const visibleAnsweredCount = (sessionState?.answeredCount || 0) + (sessionState?.feedback ? 1 : 0);
-  const visibleRemainingCount = sessionState?.pendingAdvance
-    ? sessionState.pendingAdvance.nextQueue.length
-    : (sessionState?.queue?.length || 0);
   const currentDefinition = currentCard?.definition || sessionState?.feedback?.correctChoice || '';
   const currentUsageExamples = Array.isArray(currentCard?.usage_examples)
     ? currentCard.usage_examples.filter(Boolean).slice(0, 2)
@@ -713,45 +709,33 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
 
   if (currentCard) {
     return (
-      <section className="panel child-session-panel">
-        <div className="session-progress">
-          <div className="session-progress-head">
-            <p className="eyebrow">Live Session</p>
-            <button type="button" className="ghost-button session-stop-button" onClick={onStopSession}>
-              Stop
-            </button>
-          </div>
-          <div className="progress-rail">
-            <div
-              className="progress-fill"
-              style={{ width: `${Math.max(8, Math.round((visibleAnsweredCount / sessionState.totalCards) * 100))}%` }}
-            />
-          </div>
-          <p>
-            {visibleAnsweredCount} answered • {visibleRemainingCount} left for now
-          </p>
+      <section className="panel child-session-panel child-session-live">
+        <div className="session-toolbar">
+          <button type="button" className="ghost-button session-back-button" onClick={onBackToAssignments}>
+            Back
+          </button>
         </div>
 
         <article key={currentCard.word_id} className="word-card">
-          <p className="word-label">Word</p>
           <h2>{currentCard.lemma}</h2>
-          {currentCard.image_url ? (
-            <img className="word-image" src={currentCard.image_url} alt={currentCard.lemma} />
-          ) : null}
 
           {currentCard.hint ? (
             <div className="hint-strip">
               {sessionState.hintVisible ? (
-                <p>{currentCard.hint}</p>
+                <p className="hint-copy">{currentCard.hint}</p>
               ) : (
-                <button type="button" className="ghost-button" onClick={onShowHint}>
+                <button type="button" className="ghost-button hint-action" onClick={onShowHint}>
                   Show Hint
                 </button>
               )}
             </div>
           ) : null}
 
-          <div className="choice-grid">
+          {currentCard.image_url ? (
+            <img className="word-image" src={currentCard.image_url} alt={currentCard.lemma} />
+          ) : null}
+
+          <div className="choice-grid choice-grid-session">
             {currentCard.choices.map((choice, index) => {
               const isSelected = currentAnswer?.selectedIndex === index;
               return (
@@ -773,32 +757,35 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
           {sessionState.feedback ? (
             sessionState.feedback.kind === 'right' ? (
               <div className="session-feedback session-feedback-right">
-                <div>
-                  <p className="session-feedback-title">Right</p>
-                </div>
+                <p className="session-feedback-title">You're right</p>
               </div>
             ) : (
-              <div className="session-feedback-screen" role="dialog" aria-modal="true" aria-labelledby="wrong-word-title">
+              <div
+                className="session-feedback-screen"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="wrong-word-title"
+                tabIndex={0}
+                onClick={onDismissFeedback}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ' || event.key === 'Escape') {
+                    event.preventDefault();
+                    onDismissFeedback();
+                  }
+                }}
+              >
                 <div className="session-feedback-panel">
-                  <p className="session-feedback-kicker">This one is still new. Here is a gentler look at the word.</p>
                   <h3 id="wrong-word-title" className="session-feedback-word">{currentCard?.lemma}</h3>
-                  <div className="session-feedback-block">
-                    <p className="session-feedback-label">Correct definition</p>
-                    <p className="session-feedback-definition">{currentDefinition}</p>
-                  </div>
+                  <p className="session-feedback-definition">{currentDefinition}</p>
                   {currentUsageExamples.length > 0 ? (
-                    <div className="session-feedback-block session-feedback-examples">
-                      <p className="session-feedback-label">How it can sound in a sentence</p>
-                      <ul className="session-feedback-example-list">
+                    <div className="session-feedback-example-list">
                         {currentUsageExamples.map((example) => (
-                          <li key={example}>{example}</li>
+                          <p key={example} className="session-feedback-example">
+                            {example}
+                          </p>
                         ))}
-                      </ul>
                     </div>
                   ) : null}
-                  <button type="button" className="primary-button session-feedback-button-primary" onClick={onDismissFeedback}>
-                    Back to cards
-                  </button>
                 </div>
               </div>
             )
@@ -1039,7 +1026,7 @@ export default function App() {
     setSessionState((current) => (current ? { ...current, hintVisible: true } : current));
   }
 
-  async function finishSession() {
+  async function finishSession(options = {}) {
     if (!sessionState) {
       return;
     }
@@ -1048,6 +1035,14 @@ export default function App() {
 
     try {
       const result = await api.completeSession(sessionState.id, {});
+      const nextChildData = await fetchChildData();
+      setChildData(nextChildData);
+
+      if (options.closeAfterComplete) {
+        setSessionState(null);
+        return;
+      }
+
       setSessionState((current) => current ? {
         ...current,
         summary: result.session,
@@ -1058,7 +1053,6 @@ export default function App() {
         feedback: null,
         pendingAdvance: null,
       } : current);
-      setChildData(await fetchChildData());
     } catch (error) {
       setError(error.message || 'Could not finish the session.');
     }
@@ -1174,7 +1168,7 @@ export default function App() {
       advanceTimerRef.current = window.setTimeout(() => {
         dismissFeedback();
         advanceTimerRef.current = 0;
-      }, 2000);
+      }, 500);
     }
   }
 
@@ -1227,7 +1221,7 @@ export default function App() {
               onSelectChoice={selectChoice}
               onShowHint={showHint}
               onDismissFeedback={dismissFeedback}
-              onStopSession={finishSession}
+              onBackToAssignments={() => finishSession({ closeAfterComplete: true })}
             />
           ) : (
             <section className="panel loading-panel">
