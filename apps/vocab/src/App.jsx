@@ -27,6 +27,14 @@ function formatBand(value) {
   return `Band ${band}`;
 }
 
+function defaultAdaptiveSettings(profile) {
+  return {
+    rolling_band_window: String(profile?.adaptive_settings?.rolling_band_window || 8),
+    band_adjustment_min_answers: String(profile?.adaptive_settings?.band_adjustment_min_answers || 3),
+    band_adjustment_step: String(profile?.adaptive_settings?.band_adjustment_step || 2),
+  };
+}
+
 function formatImportProgress(job) {
   const parts = [];
   const pageTotal = Number(job?.page_total) || 0;
@@ -87,11 +95,14 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   const [ocrFiles, setOcrFiles] = useState([]);
   const [selectedBookId, setSelectedBookId] = useState('');
   const [selectedChildId, setSelectedChildId] = useState('');
+  const [selectedProfileChildId, setSelectedProfileChildId] = useState('');
   const [enableHints, setEnableHints] = useState(true);
   const [enableImages, setEnableImages] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
   const [assignBusy, setAssignBusy] = useState(false);
   const [updatingAssignmentId, setUpdatingAssignmentId] = useState('');
+  const [savingProfileChildId, setSavingProfileChildId] = useState('');
+  const [adaptiveDraft, setAdaptiveDraft] = useState(defaultAdaptiveSettings());
   const [importJobs, setImportJobs] = useState(adminData.importJobs || []);
   const [trackedImportJobId, setTrackedImportJobId] = useState('');
 
@@ -106,7 +117,23 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
     if (!selectedChildId && adminData.children[0]) {
       setSelectedChildId(adminData.children[0].user_id);
     }
-  }, [adminData.books, adminData.children, selectedBookId, selectedChildId]);
+    if (!selectedProfileChildId && adminData.children[0]) {
+      setSelectedProfileChildId(adminData.children[0].user_id);
+    }
+  }, [adminData.books, adminData.children, selectedBookId, selectedChildId, selectedProfileChildId]);
+
+  useEffect(() => {
+    const selectedProfileChild = adminData.children.find((child) => child.user_id === selectedProfileChildId)
+      || adminData.children[0]
+      || null;
+
+    if (!selectedProfileChild) {
+      setAdaptiveDraft(defaultAdaptiveSettings());
+      return;
+    }
+
+    setAdaptiveDraft(defaultAdaptiveSettings(selectedProfileChild.profile));
+  }, [adminData.children, selectedProfileChildId]);
 
   useEffect(() => {
     setImportJobs(adminData.importJobs || []);
@@ -255,8 +282,38 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
     }
   }
 
+  async function handleSaveAdaptiveSettings(event) {
+    event.preventDefault();
+    if (!selectedProfileChildId) {
+      setError('Choose a child profile first.');
+      return;
+    }
+
+    setSavingProfileChildId(selectedProfileChildId);
+    setError('');
+    setNotice('');
+
+    try {
+      const result = await api.updateChildProfile(selectedProfileChildId, {
+        adaptive_settings: {
+          rolling_band_window: Number(adaptiveDraft.rolling_band_window),
+          band_adjustment_min_answers: Number(adaptiveDraft.band_adjustment_min_answers),
+          band_adjustment_step: Number(adaptiveDraft.band_adjustment_step),
+        },
+      });
+      setAdaptiveDraft(defaultAdaptiveSettings(result.profile));
+      setNotice('Child profile tuning saved.');
+      await onReload();
+    } catch (error) {
+      setError(error.message || 'Could not update child profile settings.');
+    } finally {
+      setSavingProfileChildId('');
+    }
+  }
+
   const publishedBooks = adminData.books.filter((book) => book.status === 'published');
   const recentImportJobs = importJobs.slice(0, 8);
+  const selectedProfileChild = adminData.children.find((child) => child.user_id === selectedProfileChildId) || null;
 
   return (
     <div className="workspace-grid">
@@ -389,6 +446,95 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
         </form>
       </section>
 
+      <section className="panel profile-tuning-panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Child Profile</p>
+            <h2>Adaptive Tuning</h2>
+          </div>
+          <span className="panel-chip">{selectedProfileChild ? formatBand(selectedProfileChild.profile.target_band) : 'No child'}</span>
+        </div>
+
+        <form className="stack" onSubmit={handleSaveAdaptiveSettings}>
+          <label className="field">
+            <span>Child Profile</span>
+            <select value={selectedProfileChildId} onChange={(event) => setSelectedProfileChildId(event.target.value)}>
+              <option value="">Choose a child</option>
+              {adminData.children.map((child) => (
+                <option key={child.user_id} value={child.user_id}>
+                  {child.display_name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          {selectedProfileChild ? (
+            <div className="profile-tuning-summary">
+              <p>{selectedProfileChild.email}</p>
+              <p>
+                Known {selectedProfileChild.profile.known_word_ids.length} • Learning {selectedProfileChild.profile.learning_word_ids.length} • Struggling {selectedProfileChild.profile.struggling_word_ids.length}
+              </p>
+            </div>
+          ) : null}
+
+          <div className="field-grid">
+            <label className="field">
+              <span>Rolling Window</span>
+              <input
+                type="number"
+                min="3"
+                max="20"
+                value={adaptiveDraft.rolling_band_window}
+                onChange={(event) => setAdaptiveDraft((current) => ({
+                  ...current,
+                  rolling_band_window: event.target.value,
+                }))}
+              />
+            </label>
+
+            <label className="field">
+              <span>Judge After</span>
+              <input
+                type="number"
+                min="2"
+                max="20"
+                value={adaptiveDraft.band_adjustment_min_answers}
+                onChange={(event) => setAdaptiveDraft((current) => ({
+                  ...current,
+                  band_adjustment_min_answers: event.target.value,
+                }))}
+              />
+            </label>
+
+            <label className="field">
+              <span>Recheck Every</span>
+              <input
+                type="number"
+                min="1"
+                max="10"
+                value={adaptiveDraft.band_adjustment_step}
+                onChange={(event) => setAdaptiveDraft((current) => ({
+                  ...current,
+                  band_adjustment_step: event.target.value,
+                }))}
+              />
+            </label>
+          </div>
+
+          <p className="form-note">
+            This tunes how quickly this child can move between bands as answers come in.
+          </p>
+
+          <button
+            type="submit"
+            className="primary-button"
+            disabled={!selectedProfileChildId || savingProfileChildId === selectedProfileChildId}
+          >
+            {savingProfileChildId === selectedProfileChildId ? 'Saving…' : 'Save Child Profile'}
+          </button>
+        </form>
+      </section>
+
       <section className="panel list-panel">
         <div className="panel-head">
           <div>
@@ -484,6 +630,9 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
                 </div>
                 <p>
                   Known {child.profile.known_word_ids.length} • Learning {child.profile.learning_word_ids.length} • Struggling {child.profile.struggling_word_ids.length}
+                </p>
+                <p>
+                  Window {child.profile.adaptive_settings?.rolling_band_window || 8} • Judge after {child.profile.adaptive_settings?.band_adjustment_min_answers || 3} • Recheck every {child.profile.adaptive_settings?.band_adjustment_step || 2}
                 </p>
                 <p>
                   Active assignments: {child.assignments.length}

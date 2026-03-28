@@ -1039,6 +1039,30 @@ function normalizeAssignmentSettings(input = {}) {
   };
 }
 
+function normalizeAdaptiveSettings(input = {}) {
+  const rollingBandWindow = clamp(
+    Number(input.rolling_band_window) || ROLLING_BAND_WINDOW,
+    3,
+    20
+  );
+  const bandAdjustmentMinAnswers = clamp(
+    Number(input.band_adjustment_min_answers) || BAND_ADJUSTMENT_MIN_ANSWERS,
+    2,
+    rollingBandWindow
+  );
+  const bandAdjustmentStep = clamp(
+    Number(input.band_adjustment_step) || BAND_ADJUSTMENT_STEP,
+    1,
+    10
+  );
+
+  return {
+    rolling_band_window: rollingBandWindow,
+    band_adjustment_min_answers: bandAdjustmentMinAnswers,
+    band_adjustment_step: bandAdjustmentStep,
+  };
+}
+
 function defaultProfile(user) {
   const createdAt = nowIso();
   return {
@@ -1046,6 +1070,7 @@ function defaultProfile(user) {
     email: user.email,
     display_name: user.display_name,
     target_band: 2,
+    adaptive_settings: normalizeAdaptiveSettings(),
     band_checkpoint_total_answers: 0,
     word_progress: {},
     rolling_answers: [],
@@ -1089,6 +1114,7 @@ function ensureChildProfile(profiles, user) {
     ...current,
     email: user.email,
     display_name: user.display_name,
+    adaptive_settings: normalizeAdaptiveSettings(current.adaptive_settings),
     updated_at: nowIso(),
   };
   profiles[user.user_id] = nextProfile;
@@ -1318,12 +1344,13 @@ function updateWordProgress(existing, wordSummary) {
 }
 
 function updateRollingBand(profile, answerEvents) {
+  const adaptiveSettings = normalizeAdaptiveSettings(profile.adaptive_settings);
   const nextAnswers = [...(profile.rolling_answers || []), ...answerEvents.map((event) => ({
     correct: Boolean(event.correct),
     hint_used: Boolean(event.hint_used),
     response_ms: Number(event.response_ms) || 0,
     ts: nowIso(),
-  }))].slice(-ROLLING_BAND_WINDOW);
+  }))].slice(-adaptiveSettings.rolling_band_window);
 
   const accuracy = average(nextAnswers.map((entry) => entry.correct ? 1 : 0));
   const hintRate = average(nextAnswers.map((entry) => entry.hint_used ? 1 : 0));
@@ -1333,7 +1360,10 @@ function updateRollingBand(profile, answerEvents) {
   const lastCheckpoint = Number(profile.band_checkpoint_total_answers || 0);
   let bandCheckpointTotalAnswers = lastCheckpoint;
 
-  if (nextAnswers.length >= BAND_ADJUSTMENT_MIN_ANSWERS && (totalAnswers - lastCheckpoint) >= BAND_ADJUSTMENT_STEP) {
+  if (
+    nextAnswers.length >= adaptiveSettings.band_adjustment_min_answers
+    && (totalAnswers - lastCheckpoint) >= adaptiveSettings.band_adjustment_step
+  ) {
     if (accuracy >= 0.85 && hintRate <= 0.2 && avgResponseMs > 0 && avgResponseMs < 4000) {
       targetBand += 1;
     } else if (accuracy < 0.6 || hintRate > 0.4) {
@@ -1949,6 +1979,31 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
 
     writeJson(paths.assignmentsPath, store.assignments);
     res.json({ assignment });
+  });
+
+  app.patch(`/${appName}/api/admin/children/:childUserId/profile`, requireAdmin, (req, res) => {
+    const store = readStore(paths);
+    const childUserId = String(req.params.childUserId || '');
+    const profile = store.profiles[childUserId];
+    if (!profile) {
+      res.status(404).json({ error: 'child_profile_not_found' });
+      return;
+    }
+
+    profile.adaptive_settings = normalizeAdaptiveSettings({
+      ...(profile.adaptive_settings || {}),
+      ...(req.body?.adaptive_settings || {}),
+    });
+    profile.updated_at = nowIso();
+
+    store.profiles[childUserId] = profile;
+    writeJson(paths.profilesPath, store.profiles);
+    res.json({
+      profile: {
+        ...profile,
+        ...computeProfileBuckets(profile),
+      },
+    });
   });
 
   app.get(`/${appName}/api/assignments/current`, requireChild, (req, res) => {

@@ -266,6 +266,12 @@
   gap: 0.35rem;
 }
 
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
 .field span {
   font-weight: 700;
   color: var(--ink-soft);
@@ -401,6 +407,22 @@
 
 .assignment-admin-button {
   flex-shrink: 0;
+}
+
+.profile-tuning-summary {
+  padding: 0.9rem 1rem;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(75, 63, 40, 0.08);
+}
+
+.profile-tuning-summary p,
+.form-note {
+  margin: 0;
+}
+
+.form-note {
+  color: var(--ink-soft);
 }
 
 .token {
@@ -892,6 +914,10 @@
 @media (max-width: 960px) {
   .workspace-grid,
   .auth-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .field-grid {
     grid-template-columns: 1fr;
   }
 

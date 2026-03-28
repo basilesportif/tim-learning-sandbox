@@ -89,6 +89,12 @@ export function createApiClient(getToken) {
         body: JSON.stringify(payload),
       }, getToken);
     },
+    updateChildProfile(childUserId, payload) {
+      return request(`/admin/children/${encodeURIComponent(childUserId)}/profile`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }, getToken);
+    },
     getAssignments() {
       return request('/assignments/current', { method: 'GET' }, getToken);
     },
