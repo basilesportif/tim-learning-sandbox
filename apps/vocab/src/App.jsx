@@ -524,8 +524,13 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
 }
 
 function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHint }) {
-  const currentCard = sessionState?.cards?.[sessionState.currentCardIndex] || null;
-  const currentAnswer = currentCard ? sessionState.answers[currentCard.word_id] : null;
+  const currentWordId = sessionState?.queue?.[sessionState.currentCardIndex] || null;
+  const currentCard = currentWordId
+    ? sessionState?.cards?.find((card) => card.word_id === currentWordId) || null
+    : null;
+  const currentAnswer = currentCard && sessionState?.activeAnswer?.wordId === currentCard.word_id
+    ? sessionState.activeAnswer
+    : null;
 
   if (sessionState?.summary) {
     return (
@@ -699,6 +704,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [reloadNonce, setReloadNonce] = useState(0);
   const startTimeRef = useRef(0);
+  const advanceTimerRef = useRef(0);
 
   const fetchMe = useCallback(() => api.getMe(), [api]);
 
@@ -725,6 +731,13 @@ export default function App() {
   const refreshAll = useCallback(() => {
     setError('');
     setReloadNonce((value) => value + 1);
+  }, []);
+
+  const clearAdvanceTimer = useCallback(() => {
+    if (advanceTimerRef.current) {
+      window.clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = 0;
+    }
   }, []);
 
   useEffect(() => {
@@ -789,9 +802,14 @@ export default function App() {
     };
   }, [me, reloadNonce, fetchAdminData, fetchChildData]);
 
+  useEffect(() => () => {
+    clearAdvanceTimer();
+  }, [clearAdvanceTimer]);
+
   async function startSession(assignmentId) {
     setError('');
     setNotice('');
+    clearAdvanceTimer();
 
     try {
       const data = await api.startSession({ assignment_id: assignmentId });
@@ -800,7 +818,7 @@ export default function App() {
         id: data.session.id,
         cards: data.session.cards,
         queue: data.session.cards.map((card) => card.word_id),
-        answers: {},
+        activeAnswer: null,
         currentCardIndex: 0,
         totalCards: data.session.cards.length,
         completedCount: 0,
@@ -808,6 +826,7 @@ export default function App() {
         summary: null,
         profile: null,
         onClose: async () => {
+          clearAdvanceTimer();
           setSessionState(null);
           setChildData(await fetchChildData());
         },
@@ -821,7 +840,7 @@ export default function App() {
     setSessionState((current) => (current ? { ...current, hintVisible: true } : current));
   }
 
-  async function finishSession(nextAnswers) {
+  async function finishSession() {
     if (!sessionState) {
       return;
     }
@@ -838,7 +857,6 @@ export default function App() {
       setChildData(await fetchChildData());
     } catch (error) {
       setError(error.message || 'Could not finish the session.');
-      setSessionState((current) => current ? { ...current, answers: nextAnswers } : current);
     }
   }
 
@@ -874,41 +892,55 @@ export default function App() {
       return;
     }
 
-    const nextAnswers = {
-      ...sessionState.answers,
-      [wordId]: answer,
-    };
-
     setSessionState((current) => {
       if (!current) {
         return current;
       }
-
-      const queue = [...current.queue];
-      const currentWordId = queue[current.currentCardIndex];
-      if (correct) {
-        queue.splice(current.currentCardIndex, 1);
-      } else {
-        queue.splice(current.currentCardIndex, 1);
-        const insertAt = Math.min(current.currentCardIndex + 2, queue.length);
-        queue.splice(insertAt, 0, currentWordId);
-      }
-
       return {
         ...current,
-        queue,
-        answers: nextAnswers,
-        completedCount: correct ? current.completedCount + 1 : current.completedCount,
-        currentCardIndex: queue.length === 0 ? 0 : Math.min(current.currentCardIndex, queue.length - 1),
-        hintVisible: false,
+        activeAnswer: {
+          wordId,
+          ...answer,
+        },
       };
     });
 
-    startTimeRef.current = Date.now();
-
-    if (correct && sessionState.queue.length === 1) {
-      await finishSession(nextAnswers);
+    const nextQueue = [...sessionState.queue];
+    nextQueue.splice(sessionState.currentCardIndex, 1);
+    if (!correct) {
+      const insertAt = Math.min(sessionState.currentCardIndex + 2, nextQueue.length);
+      nextQueue.splice(insertAt, 0, wordId);
     }
+
+    const nextCardIndex = nextQueue.length === 0 ? 0 : Math.min(sessionState.currentCardIndex, nextQueue.length - 1);
+    const shouldFinish = correct && nextQueue.length === 0;
+
+    clearAdvanceTimer();
+    advanceTimerRef.current = window.setTimeout(async () => {
+      if (shouldFinish) {
+        advanceTimerRef.current = 0;
+        await finishSession();
+        return;
+      }
+
+      setSessionState((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          queue: nextQueue,
+          activeAnswer: null,
+          completedCount: correct ? current.completedCount + 1 : current.completedCount,
+          currentCardIndex: nextCardIndex,
+          hintVisible: false,
+        };
+      });
+
+      startTimeRef.current = Date.now();
+      advanceTimerRef.current = 0;
+    }, 900);
   }
 
   return (
