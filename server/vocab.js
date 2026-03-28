@@ -378,6 +378,19 @@ function heuristicDifficultyBand(lemma, count) {
   return clamp(Math.round(score / 2.4), 1, 6);
 }
 
+function heuristicDifficultyScore(lemma, count) {
+  const score = scoreLemmaDifficulty(lemma, count);
+  return clamp(Math.round(((score + 1.5) / 8.5) * 100), 1, 100);
+}
+
+function normalizeDifficultyScore(rawValue, candidate) {
+  const parsed = Number(rawValue);
+  if (Number.isFinite(parsed)) {
+    return clamp(Math.round(parsed), 1, 100);
+  }
+  return heuristicDifficultyScore(candidate.lemma, candidate.count);
+}
+
 function normalizeChoiceSet(correctAnswer, distractors) {
   const choices = unique([
     String(correctAnswer || '').trim(),
@@ -423,6 +436,7 @@ function fallbackWordMetadata(candidate) {
 
   return {
     difficultyBand,
+    difficultyScore: heuristicDifficultyScore(candidate.lemma, candidate.count),
     definition: `A word worth reviewing before reading the book. Use the sentence context to confirm its meaning.`,
     hint: shortSnippet ? `Look at the sentence: "${shortSnippet}"` : 'Think about how the word might be used in the story.',
     distractors: [
@@ -572,11 +586,29 @@ function buildBookWordPoolEntry(candidate, wordRecord, rank) {
     word_id: wordRecord.id,
     lemma: candidate.lemma,
     rank,
+    difficulty_rank: rank,
     count: candidate.count,
     heuristic_score: candidate.heuristic_score,
     snippets: candidate.snippets.slice(0, 3),
     difficulty_band: wordRecord.difficulty_band,
+    difficulty_score: normalizeDifficultyScore(wordRecord.difficulty_score, candidate),
   };
+}
+
+function compareWordPoolEntries(left, right) {
+  if ((left.difficulty_band || 1) !== (right.difficulty_band || 1)) {
+    return (left.difficulty_band || 1) - (right.difficulty_band || 1);
+  }
+  if ((left.difficulty_score || 50) !== (right.difficulty_score || 50)) {
+    return (left.difficulty_score || 50) - (right.difficulty_score || 50);
+  }
+  if ((left.heuristic_score || 0) !== (right.heuristic_score || 0)) {
+    return (left.heuristic_score || 0) - (right.heuristic_score || 0);
+  }
+  if ((right.count || 0) !== (left.count || 0)) {
+    return (right.count || 0) - (left.count || 0);
+  }
+  return (left.lemma || '').localeCompare(right.lemma || '');
 }
 
 function sortImportJobs(importJobs) {
@@ -627,6 +659,7 @@ function normalizeWordMetadataResult(candidate, parsed) {
 
   return {
     difficultyBand: clamp(Number(parsed?.difficultyBand) || heuristicDifficultyBand(candidate.lemma, candidate.count), 1, 6),
+    difficultyScore: normalizeDifficultyScore(parsed?.difficultyScore, candidate),
     definition: String(parsed?.definition || '').trim() || fallback.definition,
     hint: String(parsed?.hint || '').trim() || fallback.hint,
     distractors: normalizeChoiceSet(parsed?.definition, Array.isArray(parsed?.distractors) ? parsed.distractors : []).slice(1, 4),
@@ -651,8 +684,9 @@ async function enrichWordMetadataBatchWithAI(candidates, bookTitle) {
     'You are preparing vocabulary practice for children.',
     'Return one JSON object with a single key called words.',
     'words must be an array with one item for each requested lemma.',
-    'Each item must have keys: lemma, difficultyBand, definition, hint, distractors, usageExamples, imagePrompt, needsReview.',
+    'Each item must have keys: lemma, difficultyBand, difficultyScore, definition, hint, distractors, usageExamples, imagePrompt, needsReview.',
     'difficultyBand must be an integer from 1 to 6.',
+    'difficultyScore must be an integer from 1 to 100 where 1 is easiest and 100 is hardest for a child reader.',
     'definition must be short, concrete, and child-friendly.',
     'hint must guide the child without giving away the answer.',
     'distractors must be an array of exactly 3 plausible but wrong meanings.',
@@ -758,6 +792,7 @@ function shapeWordRecord(candidate, metadata, bookId, imagesDir, generatedImageF
   const createdAt = nowIso();
   const definitionChoices = normalizeChoiceSet(metadata.definition, metadata.distractors || []);
   const usageExamples = normalizeUsageExamples(metadata.usageExamples, buildFallbackUsageExamples(candidate));
+  const difficultyScore = normalizeDifficultyScore(metadata.difficultyScore, candidate);
 
   return {
     id: `word_${slugify(candidate.lemma)}`,
@@ -767,6 +802,7 @@ function shapeWordRecord(candidate, metadata, bookId, imagesDir, generatedImageF
     count_in_book: candidate.count,
     snippets: candidate.snippets,
     difficulty_band: clamp(Number(metadata.difficultyBand) || heuristicDifficultyBand(candidate.lemma, candidate.count), 1, 6),
+    difficulty_score: difficultyScore,
     definition: metadata.definition,
     hint: metadata.hint,
     distractors: definitionChoices.filter((choice) => choice !== metadata.definition).slice(0, 3),
@@ -797,8 +833,7 @@ async function buildWordPoolForText({
 }) {
   const candidates = extractCandidateWords(combinedText, maxWordCount);
   const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
-  const wordIds = [];
-  const wordPool = [];
+  const unsortedWordPool = [];
   let generatedImageCount = 0;
 
   if (typeof onProgress === 'function') {
@@ -817,6 +852,7 @@ async function buildWordPoolForText({
       return !existing
         || !existing.definition
         || !existing.hint
+        || !Number.isFinite(Number(existing.difficulty_score))
         || !Array.isArray(existing.usage_examples)
         || existing.usage_examples.length < 2
         || !Array.isArray(existing.distractors)
@@ -859,11 +895,15 @@ async function buildWordPoolForText({
         if (refreshedMetadata) {
           const definitionChoices = normalizeChoiceSet(refreshedMetadata.definition, refreshedMetadata.distractors || []);
           const usageExamples = normalizeUsageExamples(refreshedMetadata.usageExamples, buildFallbackUsageExamples(candidate));
+          const difficultyScore = normalizeDifficultyScore(refreshedMetadata.difficultyScore, candidate);
           wordRecord.difficulty_band = clamp(
             Number(wordRecord.difficulty_band) || Number(refreshedMetadata.difficultyBand) || heuristicDifficultyBand(candidate.lemma, candidate.count),
             1,
             6
           );
+          if (!Number.isFinite(Number(wordRecord.difficulty_score))) {
+            wordRecord.difficulty_score = difficultyScore;
+          }
           wordRecord.definition = String(wordRecord.definition || '').trim() || refreshedMetadata.definition;
           wordRecord.hint = String(wordRecord.hint || '').trim() || refreshedMetadata.hint;
           if (!Array.isArray(wordRecord.usage_examples) || wordRecord.usage_examples.length < 2) {
@@ -885,8 +925,7 @@ async function buildWordPoolForText({
         wordRecord.updated_at = nowIso();
       }
 
-      wordIds.push(wordRecord.id);
-      wordPool.push(buildBookWordPoolEntry(candidate, wordRecord, overallIndex + 1));
+      unsortedWordPool.push(buildBookWordPoolEntry(candidate, wordRecord, overallIndex + 1));
 
       if (typeof onProgress === 'function') {
         onProgress({
@@ -898,6 +937,15 @@ async function buildWordPoolForText({
       }
     }
   }
+
+  const wordPool = [...unsortedWordPool]
+    .sort(compareWordPoolEntries)
+    .map((entry, index) => ({
+      ...entry,
+      rank: index + 1,
+      difficulty_rank: index + 1,
+    }));
+  const wordIds = wordPool.map((entry) => entry.word_id);
 
   return {
     candidates,
