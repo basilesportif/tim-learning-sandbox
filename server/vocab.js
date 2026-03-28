@@ -1439,7 +1439,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
 
     if (req.vocabUser.role === 'child') {
       const profile = ensureChildProfile(store.profiles, req.vocabUser);
-      writeJson(profilesPath, store.profiles);
+      writeJson(paths.profilesPath, store.profiles);
       res.json({
         user: req.vocabUser,
         profile: {
@@ -1590,7 +1590,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
 
     book.status = 'published';
     book.updated_at = nowIso();
-    writeJson(booksPath, store.books);
+    writeJson(paths.booksPath, store.books);
     res.json({ book });
   });
 
@@ -1601,7 +1601,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     for (const child of children) {
       ensureChildProfile(store.profiles, child);
     }
-    writeJson(profilesPath, store.profiles);
+    writeJson(paths.profilesPath, store.profiles);
 
     res.json({
       children: children.map((child) => {
@@ -1652,14 +1652,14 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     };
 
     store.assignments.unshift(assignment);
-    writeJson(assignmentsPath, store.assignments);
+    writeJson(paths.assignmentsPath, store.assignments);
     res.json({ assignment });
   });
 
   app.get(`/${appName}/api/assignments/current`, requireChild, (req, res) => {
     const store = readStore(paths);
     const profile = ensureChildProfile(store.profiles, req.vocabUser);
-    writeJson(profilesPath, store.profiles);
+    writeJson(paths.profilesPath, store.profiles);
 
     const assignments = store.assignments
       .filter((assignment) => assignment.child_user_id === req.vocabUser.user_id && assignment.status === 'active')
@@ -1704,7 +1704,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     }
 
     const profile = ensureChildProfile(store.profiles, req.vocabUser);
-    writeJson(profilesPath, store.profiles);
+    writeJson(paths.profilesPath, store.profiles);
 
     const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
     const assignmentWordEntries = getAssignmentWordEntries(assignment, book, wordCatalogById);
@@ -1838,7 +1838,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
   });
 
   app.get(`/${appName}/api/word-images/:wordId`, requireSignedIn, (req, res) => {
-    const wordCatalog = readJson(wordCatalogPath, []);
+    const wordCatalog = readJson(paths.wordCatalogPath, []);
     const word = wordCatalog.find((item) => item.id === req.params.wordId);
     if (!word?.image_path || !fs.existsSync(word.image_path)) {
       res.status(404).json({ error: 'image_not_found' });
@@ -1849,7 +1849,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
   });
 
   app.get(`/${appName}/api/admin/books/:bookId/artifacts/:artifactId`, requireAdmin, (req, res) => {
-    const books = readJson(booksPath, []);
+    const books = readJson(paths.booksPath, []);
     const book = books.find((item) => item.id === req.params.bookId);
     const artifact = book?.artifacts?.find((item) => item.id === req.params.artifactId);
 
