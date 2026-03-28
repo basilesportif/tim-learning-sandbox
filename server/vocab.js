@@ -18,9 +18,9 @@ const MAX_GENERATED_WORD_IMAGES_PER_BOOK = 24;
 const REVIEW_INTERVAL_DAYS = [1, 3, 7, 14, 28];
 const WRONG_RETRY_MINUTES = 15;
 const ASSISTED_REVIEW_HOURS = 12;
-const ROLLING_BAND_WINDOW = 12;
-const BAND_ADJUSTMENT_MIN_ANSWERS = 6;
-const BAND_ADJUSTMENT_STEP = 4;
+const ROLLING_BAND_WINDOW = 8;
+const BAND_ADJUSTMENT_MIN_ANSWERS = 3;
+const BAND_ADJUSTMENT_STEP = 2;
 const COMMON_WORDS = new Set([
   'about', 'after', 'again', 'along', 'always', 'another', 'around', 'asked', 'because',
   'before', 'being', 'below', 'between', 'called', 'could', 'every', 'first', 'found',
