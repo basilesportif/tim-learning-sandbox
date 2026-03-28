@@ -29,6 +29,7 @@ function formatBand(value) {
 
 function defaultAdaptiveSettings(profile) {
   return {
+    target_band: String(profile?.target_band || 2),
     rolling_band_window: String(profile?.adaptive_settings?.rolling_band_window || 8),
     band_adjustment_min_answers: String(profile?.adaptive_settings?.band_adjustment_min_answers || 3),
     band_adjustment_step: String(profile?.adaptive_settings?.band_adjustment_step || 2),
@@ -295,6 +296,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
 
     try {
       const result = await api.updateChildProfile(selectedProfileChildId, {
+        target_band: Number(adaptiveDraft.target_band),
         adaptive_settings: {
           rolling_band_window: Number(adaptiveDraft.rolling_band_window),
           band_adjustment_min_answers: Number(adaptiveDraft.band_adjustment_min_answers),
@@ -452,7 +454,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
             <p className="eyebrow">Child Profile</p>
             <h2>Adaptive Tuning</h2>
           </div>
-          <span className="panel-chip">{selectedProfileChild ? formatBand(selectedProfileChild.profile.target_band) : 'No child'}</span>
+          <span className="panel-chip">{selectedProfileChild ? formatBand(adaptiveDraft.target_band) : 'No child'}</span>
         </div>
 
         <form className="stack" onSubmit={handleSaveAdaptiveSettings}>
@@ -476,6 +478,24 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
               </p>
             </div>
           ) : null}
+
+          <label className="field">
+            <span>Target Band</span>
+            <select
+              value={adaptiveDraft.target_band}
+              onChange={(event) => setAdaptiveDraft((current) => ({
+                ...current,
+                target_band: event.target.value,
+              }))}
+            >
+              <option value="1">Band 1 — Easiest</option>
+              <option value="2">Band 2</option>
+              <option value="3">Band 3</option>
+              <option value="4">Band 4</option>
+              <option value="5">Band 5</option>
+              <option value="6">Band 6 — Hardest</option>
+            </select>
+          </label>
 
           <div className="field-grid">
             <label className="field">

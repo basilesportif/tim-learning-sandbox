@@ -1994,6 +1994,13 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       ...(profile.adaptive_settings || {}),
       ...(req.body?.adaptive_settings || {}),
     });
+    const requestedBand = req.body?.target_band;
+    if (requestedBand !== undefined && requestedBand !== null) {
+      const band = Math.round(Number(requestedBand));
+      if (band >= 1 && band <= 6) {
+        profile.target_band = band;
+      }
+    }
     profile.updated_at = nowIso();
 
     store.profiles[childUserId] = profile;
