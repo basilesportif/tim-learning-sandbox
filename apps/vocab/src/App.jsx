@@ -298,10 +298,10 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
           </label>
 
           <label className="field">
-            <span>Plain Text File</span>
+            <span>Text Or PDF File</span>
             <input
               type="file"
-              accept=".txt,text/plain"
+              accept=".txt,text/plain,.pdf,application/pdf"
               onChange={(event) => setTextFile(event.target.files?.[0] || null)}
             />
           </label>

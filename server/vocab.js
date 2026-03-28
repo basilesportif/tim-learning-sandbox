@@ -4,6 +4,7 @@ import { join } from 'path';
 import { clerkMiddleware, createClerkClient, getAuth } from '@clerk/express';
 import multer from 'multer';
 import OpenAI from 'openai';
+import { PDFParse } from 'pdf-parse';
 
 const APP_NAME = 'vocab';
 const DEFAULT_MAX_NEW_WORDS = 8;
@@ -17,6 +18,9 @@ const MAX_GENERATED_WORD_IMAGES_PER_BOOK = 24;
 const REVIEW_INTERVAL_DAYS = [1, 3, 7, 14, 28];
 const WRONG_RETRY_MINUTES = 15;
 const ASSISTED_REVIEW_HOURS = 12;
+const ROLLING_BAND_WINDOW = 12;
+const BAND_ADJUSTMENT_MIN_ANSWERS = 6;
+const BAND_ADJUSTMENT_STEP = 4;
 const COMMON_WORDS = new Set([
   'about', 'after', 'again', 'along', 'always', 'another', 'around', 'asked', 'because',
   'before', 'being', 'below', 'between', 'called', 'could', 'every', 'first', 'found',
@@ -487,6 +491,77 @@ function fileBufferToDataUrl(file) {
     return null;
   }
   return `data:${mimeType};base64,${buffer.toString('base64')}`;
+}
+
+function isPdfFile(file) {
+  const mimeType = String(file?.mimetype || '').toLowerCase();
+  const originalName = String(file?.originalname || file?.name || '').toLowerCase();
+  return mimeType === 'application/pdf' || originalName.endsWith('.pdf');
+}
+
+function hasSubstantialImportedText(text) {
+  const alphaCharacters = String(text || '').replace(/[^A-Za-z]/g, '').length;
+  return alphaCharacters >= 250;
+}
+
+async function extractTextFromPdfBuffer(file) {
+  const buffer = Buffer.isBuffer(file?.buffer) ? file.buffer : null;
+  if (!buffer) {
+    return {
+      text: '',
+      ocrImageEntries: [],
+    };
+  }
+
+  const parser = new PDFParse({ data: buffer });
+
+  try {
+    const textResult = await parser.getText();
+    const extractedText = sanitizeText(textResult?.text || '');
+
+    if (hasSubstantialImportedText(extractedText)) {
+      return {
+        text: extractedText,
+        ocrImageEntries: [],
+      };
+    }
+
+    const screenshotResult = await parser.getScreenshot({
+      imageDataUrl: true,
+      imageBuffer: false,
+      scale: 1.4,
+    });
+
+    return {
+      text: extractedText,
+      ocrImageEntries: (screenshotResult?.pages || [])
+        .map((page, index) => ({
+          dataUrl: page?.dataUrl || '',
+          originalName: `${slugify(file?.originalname || 'pdf')}-page-${String(index + 1).padStart(3, '0')}.png`,
+        }))
+        .filter((entry) => entry.dataUrl),
+    };
+  } finally {
+    await parser.destroy();
+  }
+}
+
+async function extractUploadedSourceText(file) {
+  if (!file) {
+    return {
+      text: '',
+      ocrImageEntries: [],
+    };
+  }
+
+  if (isPdfFile(file)) {
+    return extractTextFromPdfBuffer(file);
+  }
+
+  return {
+    text: sanitizeText(file.buffer?.toString('utf-8') || ''),
+    ocrImageEntries: [],
+  };
 }
 
 function getUploadedFiles(req, fieldName) {
@@ -971,6 +1046,7 @@ function defaultProfile(user) {
     email: user.email,
     display_name: user.display_name,
     target_band: 2,
+    band_checkpoint_total_answers: 0,
     word_progress: {},
     rolling_answers: [],
     stats: {
@@ -1247,27 +1323,32 @@ function updateRollingBand(profile, answerEvents) {
     hint_used: Boolean(event.hint_used),
     response_ms: Number(event.response_ms) || 0,
     ts: nowIso(),
-  }))].slice(-20);
+  }))].slice(-ROLLING_BAND_WINDOW);
 
   const accuracy = average(nextAnswers.map((entry) => entry.correct ? 1 : 0));
   const hintRate = average(nextAnswers.map((entry) => entry.hint_used ? 1 : 0));
   const avgResponseMs = average(nextAnswers.map((entry) => entry.response_ms || 0));
   let targetBand = Number(profile.target_band) || 2;
+  const totalAnswers = Number(profile.stats?.total_answers || 0) + answerEvents.length;
+  const lastCheckpoint = Number(profile.band_checkpoint_total_answers || 0);
+  let bandCheckpointTotalAnswers = lastCheckpoint;
 
-  if (nextAnswers.length >= 20) {
-    if (accuracy >= 0.85 && avgResponseMs > 0 && avgResponseMs < 4000) {
+  if (nextAnswers.length >= BAND_ADJUSTMENT_MIN_ANSWERS && (totalAnswers - lastCheckpoint) >= BAND_ADJUSTMENT_STEP) {
+    if (accuracy >= 0.85 && hintRate <= 0.2 && avgResponseMs > 0 && avgResponseMs < 4000) {
       targetBand += 1;
     } else if (accuracy < 0.6 || hintRate > 0.4) {
       targetBand -= 1;
     }
+    bandCheckpointTotalAnswers = totalAnswers;
   }
 
   return {
     rolling_answers: nextAnswers,
     target_band: clamp(targetBand, 1, 6),
+    band_checkpoint_total_answers: bandCheckpointTotalAnswers,
     stats: {
       total_sessions: Number(profile.stats?.total_sessions || 0),
-      total_answers: Number(profile.stats?.total_answers || 0) + answerEvents.length,
+      total_answers: totalAnswers,
       average_accuracy: Number(accuracy.toFixed(2)),
       hint_rate: Number(hintRate.toFixed(2)),
     },
@@ -1686,10 +1767,11 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
         const manualText = sanitizeText(req.body?.text || '');
         const textFile = getUploadedFiles(req, 'text_file')[0] || null;
         const ocrFiles = sortFilesByName(getUploadedFiles(req, 'ocr_files'), 'originalname');
+        const uploadedSource = await extractUploadedSourceText(textFile);
         const legacyOcrImages = Array.isArray(req.body?.ocr_images)
           ? req.body.ocr_images.filter(Boolean)
           : (typeof req.body?.ocr_images === 'string' && req.body.ocr_images ? [req.body.ocr_images] : []);
-        const ocrImageEntries = ocrFiles.length > 0
+        const uploadedOcrEntries = ocrFiles.length > 0
           ? ocrFiles
               .map((file) => {
                 const dataUrl = fileBufferToDataUrl(file);
@@ -1699,8 +1781,11 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
               })
               .filter(Boolean)
           : legacyOcrImages.map((dataUrl) => ({ dataUrl, originalName: '' }));
-        const textFileText = textFile ? sanitizeText(textFile.buffer?.toString('utf-8') || '') : '';
-        const importedText = manualText || textFileText;
+        const ocrImageEntries = sortFilesByName([
+          ...uploadedOcrEntries,
+          ...uploadedSource.ocrImageEntries,
+        ], 'originalName');
+        const importedText = manualText || uploadedSource.text;
         const generateImages = parseBooleanField(req.body?.generate_images);
         const maxWordCount = clamp(
           Number(req.body?.max_word_count) || DEFAULT_BOOK_WORD_POOL_SIZE,
@@ -1716,7 +1801,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
         if (!importedText && ocrImageEntries.length === 0) {
           res.status(400).json({
             error: 'text_or_images_required',
-            message: 'Add pasted text, a text file, or page images.',
+            message: 'Add pasted text, a text file, a PDF, or page images.',
           });
           return;
         }
@@ -2007,6 +2092,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     const rollingUpdate = updateRollingBand(profile, [event]);
     profile.rolling_answers = rollingUpdate.rolling_answers;
     profile.target_band = rollingUpdate.target_band;
+    profile.band_checkpoint_total_answers = rollingUpdate.band_checkpoint_total_answers;
     profile.stats = {
       ...profile.stats,
       ...rollingUpdate.stats,

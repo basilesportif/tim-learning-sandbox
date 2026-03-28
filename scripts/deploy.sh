@@ -39,7 +39,7 @@ fi
 # Install dependencies and build
 if [ -n "$APP_NAME" ]; then
     echo "📦 Building app: $APP_NAME"
-    ssh $SERVER "cd $REMOTE_PATH/apps/$APP_NAME && npm ci && npm run build"
+    ssh $SERVER "cd $REMOTE_PATH && npm ci && cd apps/$APP_NAME && npm ci && npm run build"
 else
     echo "📦 Building all apps..."
     ssh $SERVER "cd $REMOTE_PATH && npm ci"
