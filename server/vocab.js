@@ -12,7 +12,7 @@ const DEFAULT_SESSION_MINUTES = 7;
 const DEFAULT_BOOK_WORD_POOL_SIZE = 240;
 const MIN_BOOK_WORD_POOL_SIZE = 24;
 const MAX_BOOK_WORD_POOL_SIZE = 600;
-const WORD_METADATA_BATCH_SIZE = 12;
+const WORD_METADATA_BATCH_SIZE = 20;
 const MAX_GENERATED_WORD_IMAGES_PER_BOOK = 24;
 const REVIEW_INTERVAL_DAYS = [1, 3, 7, 14, 28];
 const WRONG_RETRY_MINUTES = 15;
@@ -386,6 +386,32 @@ function normalizeChoiceSet(correctAnswer, distractors) {
   return choices;
 }
 
+function normalizeUsageExamples(rawExamples, fallbackExamples = []) {
+  return unique([
+    ...(Array.isArray(rawExamples) ? rawExamples : []),
+    ...(Array.isArray(fallbackExamples) ? fallbackExamples : []),
+  ].map((item) => sanitizeText(String(item || '')).replace(/^["']+|["']+$/g, ''))
+    .filter(Boolean))
+    .slice(0, 2);
+}
+
+function buildFallbackUsageExamples(candidate) {
+  const snippetExamples = normalizeUsageExamples(candidate?.snippets || []);
+  if (snippetExamples.length >= 2) {
+    return snippetExamples;
+  }
+
+  const examples = [...snippetExamples];
+  if (examples.length === 0) {
+    examples.push(`The story uses "${candidate.lemma}" in a sentence that helps explain what is happening.`);
+  }
+  if (examples.length === 1) {
+    examples.push(`While you read, notice how "${candidate.lemma}" fits the action in the story.`);
+  }
+
+  return examples.slice(0, 2);
+}
+
 function fallbackWordMetadata(candidate) {
   const difficultyBand = heuristicDifficultyBand(candidate.lemma, candidate.count);
   const shortSnippet = candidate.snippets[0] || '';
@@ -399,6 +425,7 @@ function fallbackWordMetadata(candidate) {
       'A feeling that does not fit the sentence',
       'An action that is clearly unrelated',
     ],
+    usageExamples: buildFallbackUsageExamples(candidate),
     imagePrompt: `A simple children’s book illustration representing the word "${candidate.lemma}" with no text.`,
     needsReview: true,
   };
@@ -569,6 +596,7 @@ function normalizeWordMetadataResult(candidate, parsed) {
     definition: String(parsed?.definition || '').trim() || fallback.definition,
     hint: String(parsed?.hint || '').trim() || fallback.hint,
     distractors: normalizeChoiceSet(parsed?.definition, Array.isArray(parsed?.distractors) ? parsed.distractors : []).slice(1, 4),
+    usageExamples: normalizeUsageExamples(parsed?.usageExamples, fallback.usageExamples),
     imagePrompt: String(parsed?.imagePrompt || '').trim() || fallback.imagePrompt,
     needsReview: Boolean(parsed?.needsReview),
   };
@@ -589,11 +617,12 @@ async function enrichWordMetadataBatchWithAI(candidates, bookTitle) {
     'You are preparing vocabulary practice for children.',
     'Return one JSON object with a single key called words.',
     'words must be an array with one item for each requested lemma.',
-    'Each item must have keys: lemma, difficultyBand, definition, hint, distractors, imagePrompt, needsReview.',
+    'Each item must have keys: lemma, difficultyBand, definition, hint, distractors, usageExamples, imagePrompt, needsReview.',
     'difficultyBand must be an integer from 1 to 6.',
     'definition must be short, concrete, and child-friendly.',
     'hint must guide the child without giving away the answer.',
     'distractors must be an array of exactly 3 plausible but wrong meanings.',
+    'usageExamples must be an array of exactly 2 short, child-safe sentences that use the word naturally.',
     'needsReview must be true if the meaning is ambiguous or the word is hard to teach with one definition.',
     'Use each lemma exactly as given.',
     `Book title: ${bookTitle}`,
@@ -694,6 +723,7 @@ async function maybeGenerateWordImage(imagePrompt, wordId, imagesDir) {
 function shapeWordRecord(candidate, metadata, bookId, imagesDir, generatedImageFile) {
   const createdAt = nowIso();
   const definitionChoices = normalizeChoiceSet(metadata.definition, metadata.distractors || []);
+  const usageExamples = normalizeUsageExamples(metadata.usageExamples, buildFallbackUsageExamples(candidate));
 
   return {
     id: `word_${slugify(candidate.lemma)}`,
@@ -706,6 +736,7 @@ function shapeWordRecord(candidate, metadata, bookId, imagesDir, generatedImageF
     definition: metadata.definition,
     hint: metadata.hint,
     distractors: definitionChoices.filter((choice) => choice !== metadata.definition).slice(0, 3),
+    usage_examples: usageExamples,
     image_prompt: metadata.imagePrompt,
     image_path: generatedImageFile ? join(imagesDir, generatedImageFile) : null,
     needs_review: Boolean(metadata.needsReview),
@@ -752,6 +783,8 @@ async function buildWordPoolForText({
       return !existing
         || !existing.definition
         || !existing.hint
+        || !Array.isArray(existing.usage_examples)
+        || existing.usage_examples.length < 2
         || !Array.isArray(existing.distractors)
         || existing.distractors.length < 3;
     });
@@ -791,6 +824,7 @@ async function buildWordPoolForText({
         wordRecord.snippets = unique([...(wordRecord.snippets || []), ...candidate.snippets]).slice(0, 4);
         if (refreshedMetadata) {
           const definitionChoices = normalizeChoiceSet(refreshedMetadata.definition, refreshedMetadata.distractors || []);
+          const usageExamples = normalizeUsageExamples(refreshedMetadata.usageExamples, buildFallbackUsageExamples(candidate));
           wordRecord.difficulty_band = clamp(
             Number(wordRecord.difficulty_band) || Number(refreshedMetadata.difficultyBand) || heuristicDifficultyBand(candidate.lemma, candidate.count),
             1,
@@ -798,6 +832,9 @@ async function buildWordPoolForText({
           );
           wordRecord.definition = String(wordRecord.definition || '').trim() || refreshedMetadata.definition;
           wordRecord.hint = String(wordRecord.hint || '').trim() || refreshedMetadata.hint;
+          if (!Array.isArray(wordRecord.usage_examples) || wordRecord.usage_examples.length < 2) {
+            wordRecord.usage_examples = usageExamples;
+          }
           if (!Array.isArray(wordRecord.distractors) || wordRecord.distractors.length < 3) {
             wordRecord.distractors = definitionChoices.filter((choice) => choice !== refreshedMetadata.definition).slice(0, 3);
           }
@@ -972,6 +1009,8 @@ function buildCard(word, assignment, imageUrl) {
     card_id: crypto.randomUUID(),
     word_id: word.id,
     lemma: word.lemma,
+    definition: word.definition,
+    usage_examples: Array.isArray(word.usage_examples) ? word.usage_examples.slice(0, 2) : [],
     hint: assignment.settings.hints_enabled ? word.hint : '',
     image_url: assignment.settings.images_enabled && imageUrl ? imageUrl : null,
     choices: shuffled,

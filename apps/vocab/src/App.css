@@ -690,11 +690,6 @@
   color: #1f5a35;
 }
 
-.session-feedback-wrong {
-  background: rgba(247, 220, 212, 0.98);
-  color: #7a2c1c;
-}
-
 .session-feedback-title,
 .session-feedback-copy {
   margin: 0;
@@ -714,6 +709,90 @@
 .session-feedback-button {
   flex-shrink: 0;
   background: rgba(255, 255, 255, 0.72);
+}
+
+.session-feedback-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(171, 143, 214, 0.26);
+  backdrop-filter: blur(8px);
+  animation: fade-up 220ms ease-out both;
+}
+
+.session-feedback-panel {
+  width: min(720px, calc(100vw - 2rem));
+  display: grid;
+  gap: 1rem;
+  padding: clamp(1.5rem, 4vw, 2.4rem);
+  border-radius: 30px;
+  border: 1px solid rgba(115, 79, 163, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(255, 255, 255, 0.52), transparent 32%),
+    linear-gradient(180deg, rgba(247, 239, 255, 0.98), rgba(237, 228, 251, 0.96));
+  color: #4d2f6b;
+  box-shadow: 0 28px 60px rgba(86, 58, 118, 0.22);
+}
+
+.session-feedback-kicker,
+.session-feedback-label,
+.session-feedback-definition,
+.session-feedback-word {
+  margin: 0;
+}
+
+.session-feedback-kicker {
+  font-size: 0.98rem;
+  line-height: 1.6;
+  color: rgba(77, 47, 107, 0.86);
+}
+
+.session-feedback-word {
+  font-size: clamp(2.1rem, 6vw, 3.6rem);
+  line-height: 1;
+  color: #40245d;
+}
+
+.session-feedback-block {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.session-feedback-label {
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(77, 47, 107, 0.72);
+}
+
+.session-feedback-definition {
+  font-size: clamp(1.15rem, 3vw, 1.45rem);
+  line-height: 1.45;
+  color: #31184d;
+}
+
+.session-feedback-examples {
+  padding: 1rem 1.05rem;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.54);
+  border: 1px solid rgba(115, 79, 163, 0.12);
+}
+
+.session-feedback-example-list {
+  margin: 0;
+  padding-left: 1.3rem;
+  display: grid;
+  gap: 0.7rem;
+  color: #4b3563;
+  line-height: 1.55;
+}
+
+.session-feedback-button-primary {
+  justify-self: start;
 }
 
 .empty-state {

@@ -535,6 +535,10 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
   const visibleRemainingCount = sessionState?.pendingAdvance
     ? sessionState.pendingAdvance.nextQueue.length
     : (sessionState?.queue?.length || 0);
+  const currentDefinition = currentCard?.definition || sessionState?.feedback?.correctChoice || '';
+  const currentUsageExamples = Array.isArray(currentCard?.usage_examples)
+    ? currentCard.usage_examples.filter(Boolean).slice(0, 2)
+    : [];
 
   if (sessionState?.summary) {
     return (
@@ -618,23 +622,37 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
           </div>
 
           {sessionState.feedback ? (
-            <div className={`session-feedback session-feedback-${sessionState.feedback.kind}`}>
-              <div>
-                <p className="session-feedback-title">
-                  {sessionState.feedback.kind === 'right' ? 'Right' : 'Wrong'}
-                </p>
-                {sessionState.feedback.kind === 'wrong' ? (
-                  <p className="session-feedback-copy">
-                    Right answer: <strong>{sessionState.feedback.correctChoice}</strong>
-                  </p>
-                ) : null}
+            sessionState.feedback.kind === 'right' ? (
+              <div className="session-feedback session-feedback-right">
+                <div>
+                  <p className="session-feedback-title">Right</p>
+                </div>
               </div>
-              {sessionState.feedback.kind === 'wrong' ? (
-                <button type="button" className="ghost-button session-feedback-button" onClick={onDismissFeedback}>
-                  Continue
-                </button>
-              ) : null}
-            </div>
+            ) : (
+              <div className="session-feedback-screen" role="dialog" aria-modal="true" aria-labelledby="wrong-word-title">
+                <div className="session-feedback-panel">
+                  <p className="session-feedback-kicker">This one is still new. Here is a gentler look at the word.</p>
+                  <h3 id="wrong-word-title" className="session-feedback-word">{currentCard?.lemma}</h3>
+                  <div className="session-feedback-block">
+                    <p className="session-feedback-label">Correct definition</p>
+                    <p className="session-feedback-definition">{currentDefinition}</p>
+                  </div>
+                  {currentUsageExamples.length > 0 ? (
+                    <div className="session-feedback-block session-feedback-examples">
+                      <p className="session-feedback-label">How it can sound in a sentence</p>
+                      <ul className="session-feedback-example-list">
+                        {currentUsageExamples.map((example) => (
+                          <li key={example}>{example}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  <button type="button" className="primary-button session-feedback-button-primary" onClick={onDismissFeedback}>
+                    Back to cards
+                  </button>
+                </div>
+              </div>
+            )
           ) : null}
         </article>
       </section>
