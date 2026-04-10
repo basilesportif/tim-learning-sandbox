@@ -13,6 +13,7 @@ Private vocabulary prep for books and custom word decks.
 - Book imports and pasted-word deck builds run as background jobs so large jobs do not time out the browser request
 - Imported books become assignable book-backed decks, and custom word lists become assignable word decks
 - Each deck stores a larger ranked word pool, and child sessions pull easier or harder words from that pool based on performance
+- Admin can expand deck cards to inspect every saved word, definition, and wrong-choice set
 - Book source text is stored server-side only for admin use
 - Child users sign in with Clerk and see only their own assignments
 - Admin can inspect each child’s assigned decks with per-deck word status counts

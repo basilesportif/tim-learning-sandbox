@@ -56,6 +56,42 @@ function formatAssignmentProgress(progress) {
   return `${total} words • ${mastered} mastered • ${notStarted} new • ${learning} learning • ${struggling} struggling • ${due} due now`;
 }
 
+function DeckWordInspector({ deck, expanded, onToggle }) {
+  const words = Array.isArray(deck?.words) ? deck.words : [];
+
+  return (
+    <div className="deck-word-inspector">
+      <button type="button" className="ghost-button deck-word-toggle" onClick={onToggle}>
+        {expanded ? 'Hide Words' : `View All ${words.length} Words`}
+      </button>
+
+      {expanded ? (
+        <div className="deck-word-panel">
+          {words.length === 0 ? (
+            <p className="empty-state">No words found in this deck yet.</p>
+          ) : (
+            <div className="deck-word-list">
+              {words.map((word) => (
+                <div key={word.id || word.lemma} className="deck-word-row">
+                  <div>
+                    <p className="deck-word-title">{word.lemma}</p>
+                    <p className="deck-word-definition">{word.definition || 'No definition saved yet.'}</p>
+                  </div>
+                  {Array.isArray(word.distractors) && word.distractors.length > 0 ? (
+                    <p className="deck-word-choices">
+                      Wrong choices: {word.distractors.join(' | ')}
+                    </p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function buildDeckGeneratorPrompt({
   topic,
   readingLevel,
@@ -178,6 +214,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   const [deckPromptWordCount, setDeckPromptWordCount] = useState('20');
   const [deckPromptIncludeExistingWords, setDeckPromptIncludeExistingWords] = useState(true);
   const [deckPromptCopied, setDeckPromptCopied] = useState(false);
+  const [expandedDeckId, setExpandedDeckId] = useState('');
   const [selectedDeckId, setSelectedDeckId] = useState('');
   const [selectedChildId, setSelectedChildId] = useState('');
   const [selectedProfileChildId, setSelectedProfileChildId] = useState('');
@@ -934,6 +971,11 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
                     </span>
                   ))}
                 </div>
+                <DeckWordInspector
+                  deck={deck}
+                  expanded={expandedDeckId === deck.id}
+                  onToggle={() => setExpandedDeckId((currentId) => (currentId === deck.id ? '' : deck.id))}
+                />
               </article>
             ))
           )}
@@ -971,11 +1013,18 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
                     </span>
                   ))}
                 </div>
-                {book.status !== 'published' ? (
-                  <button type="button" className="ghost-button" onClick={() => handlePublish(book.id)}>
-                    Publish
-                  </button>
-                ) : null}
+                <div className="card-actions">
+                  <DeckWordInspector
+                    deck={book}
+                    expanded={expandedDeckId === book.id}
+                    onToggle={() => setExpandedDeckId((currentId) => (currentId === book.id ? '' : book.id))}
+                  />
+                  {book.status !== 'published' ? (
+                    <button type="button" className="ghost-button" onClick={() => handlePublish(book.id)}>
+                      Publish
+                    </button>
+                  ) : null}
+                </div>
               </article>
             ))
           )}

@@ -372,6 +372,71 @@
   margin: 0.75rem 0;
 }
 
+.card-actions {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.card-actions .deck-word-inspector {
+  flex: 1 1 100%;
+  margin-top: 0;
+}
+
+.deck-word-inspector {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.75rem;
+}
+
+.deck-word-toggle {
+  justify-self: start;
+}
+
+.deck-word-panel {
+  max-height: 28rem;
+  overflow: auto;
+  padding: 0.75rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(75, 63, 40, 0.08);
+}
+
+.deck-word-list {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.deck-word-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.35rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 14px;
+  background: rgba(248, 244, 235, 0.86);
+  border: 1px solid rgba(75, 63, 40, 0.08);
+}
+
+.deck-word-title,
+.deck-word-definition,
+.deck-word-choices {
+  margin: 0;
+}
+
+.deck-word-title {
+  font-weight: 800;
+  color: var(--ink-strong);
+}
+
+.deck-word-definition,
+.deck-word-choices {
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
 .assignment-admin-list {
   display: grid;
   gap: 0.65rem;
