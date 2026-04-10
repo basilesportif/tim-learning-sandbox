@@ -181,7 +181,7 @@ function ShellHeader({ role, name, onRefresh }) {
         <h1>{role === 'admin' ? 'Deck Prep Console' : 'Today’s Word Run'}</h1>
         <p className="subtitle">
           {role === 'admin'
-            ? 'Import books, build word decks, and assign the right practice queue to each child.'
+            ? 'Inspect decks, generate word lists, and import book vocabulary from one focused console.'
             : `Signed in as ${name}. Keep the pace light and keep the cards moving.`}
         </p>
       </div>
@@ -500,6 +500,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   }
 
   const publishedDecks = adminData.decks.filter((deck) => deck.status === 'published');
+  const allDecks = adminData.decks;
   const customDecks = adminData.decks.filter((deck) => deck.type !== 'book');
   const selectedAppendDeck = customDecks.find((deck) => deck.id === deckTargetId) || null;
   const existingPromptWords = useMemo(() => (
@@ -508,6 +509,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
       : []
   ), [deckPromptIncludeExistingWords, selectedAppendDeck]);
   const recentImportJobs = importJobs.slice(0, 8);
+  const activeImportJobs = recentImportJobs.filter((job) => job.status === 'queued' || job.status === 'processing');
   const selectedProfileChild = adminData.children.find((child) => child.user_id === selectedProfileChildId) || null;
   const deckGeneratorPrompt = useMemo(() => buildDeckGeneratorPrompt({
     topic: deckPromptTopic,
@@ -516,9 +518,90 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
     existingWords: existingPromptWords,
   }), [deckPromptReadingLevel, deckPromptTopic, deckPromptWordCount, existingPromptWords]);
 
+  function renderDeckCard(deck) {
+    const words = Array.isArray(deck.words) ? deck.words : [];
+
+    return (
+      <article key={deck.id} className="list-card">
+        <div className="list-card-head">
+          <div>
+            <h3>{deck.title}</h3>
+            <p>{deckSecondaryText(deck)}</p>
+          </div>
+          <span className={`status-pill status-${deck.status}`}>{deck.status}</span>
+        </div>
+        <p>
+          {deck.word_ids.length} words • {formatDeckType(deck)}
+          {deck.type === 'book' && deck.word_count ? ` • ${deck.word_count} words in source` : ''}
+        </p>
+        <div className="token-row">
+          {words.slice(0, 8).map((word) => (
+            <span key={word.id || word.lemma} className="token">
+              {word.lemma}
+            </span>
+          ))}
+        </div>
+        <div className="card-actions">
+          <DeckWordInspector
+            deck={deck}
+            expanded={expandedDeckId === deck.id}
+            onToggle={() => setExpandedDeckId((currentId) => (currentId === deck.id ? '' : deck.id))}
+          />
+          {deck.type === 'book' && deck.status !== 'published' ? (
+            <button type="button" className="ghost-button" onClick={() => handlePublish(deck.book_id || deck.id)}>
+              Publish Book Deck
+            </button>
+          ) : null}
+        </div>
+      </article>
+    );
+  }
+
   return (
-    <div className="workspace-grid">
-      <section className="panel import-panel">
+    <div className="workspace-grid admin-workspace">
+      {activeImportJobs.length > 0 ? (
+        <section className="panel admin-wide-panel active-jobs-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Working</p>
+              <h2>Active Jobs</h2>
+            </div>
+            <span className="panel-chip">{activeImportJobs.length} running</span>
+          </div>
+          <div className="job-status-strip">
+            {activeImportJobs.map((job) => (
+              <div key={job.id} className="job-status-card">
+                <div>
+                  <p className="assignment-admin-title">{job.title}</p>
+                  <p className="assignment-admin-meta">{job.message || 'Waiting for status update.'}</p>
+                </div>
+                <span className={`status-pill status-${job.status}`}>{formatImportProgress(job) || job.status}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="panel list-panel admin-wide-panel deck-library-panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Library</p>
+            <h2>Deck Library</h2>
+            <p>Inspect every word deck in one place, including imported book decks.</p>
+          </div>
+          <span className="panel-chip">{allDecks.length} decks</span>
+        </div>
+
+        <div className="card-list deck-library-list">
+          {allDecks.length === 0 ? (
+            <p className="empty-state">No decks yet. Add a book or build a word deck to get started.</p>
+          ) : (
+            allDecks.map((deck) => renderDeckCard(deck))
+          )}
+        </div>
+      </section>
+
+      <section className="panel import-panel book-import-panel">
         <div className="panel-head">
           <div>
             <p className="eyebrow">Import</p>
@@ -589,13 +672,13 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
         </form>
       </section>
 
-      <section className="panel import-panel">
+      <section className="panel import-panel deck-builder-panel">
         <div className="panel-head">
           <div>
             <p className="eyebrow">Word Deck</p>
-            <h2>Build From A Word List</h2>
+            <h2>Generate Word Deck</h2>
           </div>
-          <span className="panel-chip">Copy and paste</span>
+          <span className="panel-chip">AI prompt</span>
         </div>
 
         <form className="stack" onSubmit={handleCreateDeck}>
@@ -684,12 +767,15 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
                   : 'Choose an existing deck above to include its current words in the prompt'}
               </span>
             </label>
-            <textarea
-              className="prompt-helper-text"
-              rows={10}
-              value={deckGeneratorPrompt}
-              readOnly
-            />
+            <details className="prompt-preview">
+              <summary>Preview Prompt</summary>
+              <textarea
+                className="prompt-helper-text"
+                rows={10}
+                value={deckGeneratorPrompt}
+                readOnly
+              />
+            </details>
           </div>
 
           <label className="field">
@@ -728,6 +814,13 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
         </form>
       </section>
 
+      <details className="panel advanced-admin-panel admin-wide-panel">
+        <summary>
+          <span>Advanced Admin</span>
+          <small>Assignments, child tuning, and job history</small>
+        </summary>
+
+        <div className="advanced-admin-grid">
       <section className="panel assign-panel">
         <div className="panel-head">
           <div>
@@ -943,97 +1036,6 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
       <section className="panel list-panel">
         <div className="panel-head">
           <div>
-            <p className="eyebrow">Decks</p>
-            <h2>Curated Word Decks</h2>
-          </div>
-        </div>
-
-        <div className="card-list">
-          {customDecks.length === 0 ? (
-            <p className="empty-state">No custom word decks yet.</p>
-          ) : (
-            customDecks.map((deck) => (
-              <article key={deck.id} className="list-card">
-                <div className="list-card-head">
-                  <div>
-                    <h3>{deck.title}</h3>
-                    <p>{deckSecondaryText(deck)}</p>
-                  </div>
-                  <span className={`status-pill status-${deck.status}`}>{deck.status}</span>
-                </div>
-                <p>
-                  {deck.word_ids.length} words • {formatDeckType(deck)}
-                </p>
-                <div className="token-row">
-                  {deck.words.slice(0, 8).map((word) => (
-                    <span key={word.id} className="token">
-                      {word.lemma}
-                    </span>
-                  ))}
-                </div>
-                <DeckWordInspector
-                  deck={deck}
-                  expanded={expandedDeckId === deck.id}
-                  onToggle={() => setExpandedDeckId((currentId) => (currentId === deck.id ? '' : deck.id))}
-                />
-              </article>
-            ))
-          )}
-        </div>
-      </section>
-
-      <section className="panel list-panel">
-        <div className="panel-head">
-          <div>
-            <p className="eyebrow">Books</p>
-            <h2>Library</h2>
-          </div>
-        </div>
-
-        <div className="card-list">
-          {adminData.books.length === 0 ? (
-            <p className="empty-state">No books imported yet.</p>
-          ) : (
-            adminData.books.map((book) => (
-              <article key={book.id} className="list-card">
-                <div className="list-card-head">
-                  <div>
-                    <h3>{book.title}</h3>
-                    <p>{book.author || 'Unknown author'}</p>
-                  </div>
-                  <span className={`status-pill status-${book.status}`}>{book.status}</span>
-                </div>
-                <p>
-                  {book.word_ids.length} pool words • {book.word_count} words in source • {book.page_images?.length || 0} page images • {book.artifacts?.length || 0} artifacts
-                </p>
-                <div className="token-row">
-                  {book.words.slice(0, 8).map((word) => (
-                    <span key={word.id} className="token">
-                      {word.lemma}
-                    </span>
-                  ))}
-                </div>
-                <div className="card-actions">
-                  <DeckWordInspector
-                    deck={book}
-                    expanded={expandedDeckId === book.id}
-                    onToggle={() => setExpandedDeckId((currentId) => (currentId === book.id ? '' : book.id))}
-                  />
-                  {book.status !== 'published' ? (
-                    <button type="button" className="ghost-button" onClick={() => handlePublish(book.id)}>
-                      Publish
-                    </button>
-                  ) : null}
-                </div>
-              </article>
-            ))
-          )}
-        </div>
-      </section>
-
-      <section className="panel list-panel">
-        <div className="panel-head">
-          <div>
             <p className="eyebrow">Children</p>
             <h2>Profiles</h2>
           </div>
@@ -1095,6 +1097,8 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
           )}
         </div>
       </section>
+        </div>
+      </details>
     </div>
   );
 }

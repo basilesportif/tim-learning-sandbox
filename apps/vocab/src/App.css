@@ -109,6 +109,112 @@
   animation: fade-up 400ms ease-out both;
 }
 
+.admin-workspace {
+  align-items: start;
+}
+
+.admin-wide-panel {
+  grid-column: 1 / -1;
+}
+
+.deck-library-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.active-jobs-panel {
+  order: 0;
+  background: rgba(246, 239, 222, 0.96);
+}
+
+.deck-library-panel {
+  order: 1;
+}
+
+.deck-builder-panel {
+  order: 2;
+}
+
+.book-import-panel {
+  order: 3;
+}
+
+.advanced-admin-panel {
+  order: 4;
+}
+
+.job-status-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.job-status-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(75, 63, 40, 0.08);
+}
+
+.advanced-admin-panel > summary,
+.prompt-preview > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.advanced-admin-panel > summary::-webkit-details-marker,
+.prompt-preview > summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-admin-panel > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  font-weight: 800;
+  color: var(--ink-strong);
+}
+
+.advanced-admin-panel > summary::after,
+.prompt-preview > summary::after {
+  content: '+';
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.7rem;
+  height: 1.7rem;
+  border-radius: 999px;
+  background: rgba(239, 232, 217, 0.9);
+  color: var(--ink-strong);
+  font-weight: 900;
+}
+
+.advanced-admin-panel[open] > summary::after,
+.prompt-preview[open] > summary::after {
+  content: '-';
+}
+
+.advanced-admin-panel small {
+  color: var(--ink-soft);
+  font-weight: 700;
+}
+
+.advanced-admin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.advanced-admin-grid > .panel {
+  box-shadow: none;
+  background: rgba(248, 244, 235, 0.68);
+}
+
 .child-grid {
   grid-template-columns: 1fr;
 }
@@ -516,6 +622,23 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.8rem;
+}
+
+.prompt-preview {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.prompt-preview > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 14px;
+  background: rgba(239, 232, 217, 0.68);
+  font-weight: 800;
+  color: var(--ink-strong);
 }
 
 .prompt-helper-text {
@@ -939,6 +1062,12 @@
 @media (max-width: 960px) {
   .workspace-grid,
   .auth-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .deck-library-list,
+  .job-status-strip,
+  .advanced-admin-grid {
     grid-template-columns: 1fr;
   }
 
