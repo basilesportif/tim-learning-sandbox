@@ -7,7 +7,7 @@ Private vocabulary prep for books and custom word decks.
 - Admin signs in with Clerk and imports books from pasted text, `.txt`, or page photos
 - Admin can also build custom word decks from a pasted word list
 - Pasted word decks can include manual definitions and wrong answer choices per row
-- The deck builder UI includes a copyable prompt for another AI to generate tab-separated rows
+- The deck builder UI includes a customizable copyable prompt for another AI, including topic, reading level, and word count
 - OCR page photos are processed in filename order, so names like `001.jpg`, `002.jpg`, `003.jpg` control page order
 - Book imports and pasted-word deck builds run as background jobs so large jobs do not time out the browser request
 - Imported books become assignable book-backed decks, and custom word lists become assignable word decks

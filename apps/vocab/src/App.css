@@ -447,6 +447,12 @@
   color: var(--ink-strong);
 }
 
+.prompt-helper-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
 .prompt-helper-text {
   min-height: 12rem;
   font-size: 0.92rem;
@@ -872,6 +878,10 @@
   }
 
   .field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .prompt-helper-controls {
     grid-template-columns: 1fr;
   }
 

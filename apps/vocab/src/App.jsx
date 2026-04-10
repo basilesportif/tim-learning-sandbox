@@ -41,21 +41,34 @@ function deckSecondaryText(deck) {
   return deck.description || `${deck.word_count || 0} pasted words`;
 }
 
-const DECK_GENERATOR_PROMPT = `Generate a vocabulary deck for children.
+function buildDeckGeneratorPrompt({ topic, readingLevel, wordCount }) {
+  const normalizedTopic = String(topic || '').trim() || 'general everyday vocabulary';
+  const normalizedReadingLevel = String(readingLevel || '').trim() || 'early elementary';
+  const normalizedWordCount = Math.max(1, Number(wordCount) || 20);
+
+  return `Generate a vocabulary deck for children.
+
+Topic: ${normalizedTopic}
+Reading level: ${normalizedReadingLevel}
+Number of words: ${normalizedWordCount}
 
 Return only plain text rows with tab-separated columns in this exact format:
 word<TAB>definition<TAB>wrong choice 1<TAB>wrong choice 2<TAB>wrong choice 3
 
 Rules:
+- Produce exactly ${normalizedWordCount} rows
 - One word per line
+- Match the topic and reading level
 - Use short, concrete, child-friendly definitions
 - Wrong choices should be plausible meanings, not nonsense
+- Avoid duplicate words
 - Do not number the rows
 - Do not use markdown
 - Do not add any explanation before or after the rows
 
 Example:
 curious\twanting to know more\tready for bed\tmade of metal\teasy to spill`;
+}
 
 function defaultAdaptiveSettings(profile) {
   return {
@@ -128,6 +141,9 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   const [deckDescription, setDeckDescription] = useState('');
   const [deckWords, setDeckWords] = useState('');
   const [deckGenerateImages, setDeckGenerateImages] = useState(false);
+  const [deckPromptTopic, setDeckPromptTopic] = useState('');
+  const [deckPromptReadingLevel, setDeckPromptReadingLevel] = useState('early elementary');
+  const [deckPromptWordCount, setDeckPromptWordCount] = useState('20');
   const [deckPromptCopied, setDeckPromptCopied] = useState(false);
   const [selectedDeckId, setSelectedDeckId] = useState('');
   const [selectedChildId, setSelectedChildId] = useState('');
@@ -293,7 +309,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
 
   async function handleCopyDeckPrompt() {
     try {
-      await navigator.clipboard.writeText(DECK_GENERATOR_PROMPT);
+      await navigator.clipboard.writeText(deckGeneratorPrompt);
       setDeckPromptCopied(true);
       window.setTimeout(() => {
         setDeckPromptCopied(false);
@@ -398,6 +414,11 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   const customDecks = adminData.decks.filter((deck) => deck.type !== 'book');
   const recentImportJobs = importJobs.slice(0, 8);
   const selectedProfileChild = adminData.children.find((child) => child.user_id === selectedProfileChildId) || null;
+  const deckGeneratorPrompt = useMemo(() => buildDeckGeneratorPrompt({
+    topic: deckPromptTopic,
+    readingLevel: deckPromptReadingLevel,
+    wordCount: deckPromptWordCount,
+  }), [deckPromptReadingLevel, deckPromptTopic, deckPromptWordCount]);
 
   return (
     <div className="workspace-grid">
@@ -503,10 +524,43 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
                 {deckPromptCopied ? 'Copied' : 'Copy Prompt'}
               </button>
             </div>
+            <div className="prompt-helper-controls">
+              <label className="field">
+                <span>Topic</span>
+                <input
+                  value={deckPromptTopic}
+                  onChange={(event) => setDeckPromptTopic(event.target.value)}
+                  placeholder="ocean animals, grade 2 science, feelings..."
+                />
+              </label>
+
+              <label className="field">
+                <span>Reading Level</span>
+                <select
+                  value={deckPromptReadingLevel}
+                  onChange={(event) => setDeckPromptReadingLevel(event.target.value)}
+                >
+                  <option value="early elementary">Early Elementary</option>
+                  <option value="late elementary">Late Elementary</option>
+                  <option value="middle grade">Middle Grade</option>
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Word Count</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={deckPromptWordCount}
+                  onChange={(event) => setDeckPromptWordCount(event.target.value)}
+                />
+              </label>
+            </div>
             <textarea
               className="prompt-helper-text"
               rows={10}
-              value={DECK_GENERATOR_PROMPT}
+              value={deckGeneratorPrompt}
               readOnly
             />
           </div>
