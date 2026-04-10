@@ -52,8 +52,8 @@ Topic: ${normalizedTopic}
 Reading level: ${normalizedReadingLevel}
 Number of words: ${normalizedWordCount}
 
-Return only plain text rows with tab-separated columns in this exact format:
-word<TAB>definition<TAB>wrong choice 1<TAB>wrong choice 2<TAB>wrong choice 3
+Return only plain text rows with pipe-separated columns in this exact format:
+word|definition|wrong choice 1|wrong choice 2|wrong choice 3
 
 Rules:
 - Produce exactly ${normalizedWordCount} rows
@@ -67,7 +67,7 @@ Rules:
 - Do not add any explanation before or after the rows
 
 Example:
-curious\twanting to know more\tready for bed\tmade of metal\teasy to spill`;
+curious|wanting to know more|ready for bed|made of metal|easy to spill`;
 }
 
 function defaultAdaptiveSettings(profile) {
@@ -568,15 +568,15 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
               rows={8}
               value={deckWords}
               onChange={(event) => setDeckWords(event.target.value)}
-              placeholder={'big\tvery large\ttiny\tvery loud\tfull of water\ncurious\twanting to know more\tready for bed\tmade of metal\teasy to spill'}
+              placeholder={'big|very large|tiny|very loud|full of water\ncurious|wanting to know more|ready for bed|made of metal|easy to spill'}
               required
             />
           </label>
 
           <p className="form-note">
-            Paste either a simple word list, or one word per line with tab-separated columns:
+            Paste either a simple word list, or one word per line with pipe-separated columns:
             word, definition, wrong choice 1, wrong choice 2, wrong choice 3.
-            Optional extra columns: hint, example 1, example 2. Pipe separators also work.
+            Optional extra columns: hint, example 1, example 2. Tab separators also work.
           </p>
 
           <label className="toggle">

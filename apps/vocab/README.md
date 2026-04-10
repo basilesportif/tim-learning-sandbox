@@ -21,18 +21,18 @@ Private vocabulary prep for books and custom word decks.
 
 For a simple deck, paste just words separated by spaces, commas, or new lines.
 
-For manual answer content, paste one word per line with tab-separated columns:
+For manual answer content, paste one word per line with pipe-separated columns:
 
-`word<TAB>definition<TAB>wrong choice 1<TAB>wrong choice 2<TAB>wrong choice 3`
+`word|definition|wrong choice 1|wrong choice 2|wrong choice 3`
 
 Optional extra columns:
 - `hint`
 - `example 1`
 - `example 2`
 
-Pipe-separated rows also work:
+Tab-separated rows also work:
 
-`word | definition | wrong choice 1 | wrong choice 2 | wrong choice 3`
+`word<TAB>definition<TAB>wrong choice 1<TAB>wrong choice 2<TAB>wrong choice 3`
 
 ## Required Environment
 
