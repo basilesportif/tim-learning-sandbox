@@ -41,6 +41,22 @@ function deckSecondaryText(deck) {
   return deck.description || `${deck.word_count || 0} pasted words`;
 }
 
+const DECK_GENERATOR_PROMPT = `Generate a vocabulary deck for children.
+
+Return only plain text rows with tab-separated columns in this exact format:
+word<TAB>definition<TAB>wrong choice 1<TAB>wrong choice 2<TAB>wrong choice 3
+
+Rules:
+- One word per line
+- Use short, concrete, child-friendly definitions
+- Wrong choices should be plausible meanings, not nonsense
+- Do not number the rows
+- Do not use markdown
+- Do not add any explanation before or after the rows
+
+Example:
+curious\twanting to know more\tready for bed\tmade of metal\teasy to spill`;
+
 function defaultAdaptiveSettings(profile) {
   return {
     target_band: String(profile?.target_band || 2),
@@ -112,6 +128,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   const [deckDescription, setDeckDescription] = useState('');
   const [deckWords, setDeckWords] = useState('');
   const [deckGenerateImages, setDeckGenerateImages] = useState(false);
+  const [deckPromptCopied, setDeckPromptCopied] = useState(false);
   const [selectedDeckId, setSelectedDeckId] = useState('');
   const [selectedChildId, setSelectedChildId] = useState('');
   const [selectedProfileChildId, setSelectedProfileChildId] = useState('');
@@ -271,6 +288,18 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
       setError(error.message || 'Deck build failed.');
     } finally {
       setDeckBusy(false);
+    }
+  }
+
+  async function handleCopyDeckPrompt() {
+    try {
+      await navigator.clipboard.writeText(DECK_GENERATOR_PROMPT);
+      setDeckPromptCopied(true);
+      window.setTimeout(() => {
+        setDeckPromptCopied(false);
+      }, 1500);
+    } catch (error) {
+      setError(error.message || 'Could not copy the AI prompt.');
     }
   }
 
@@ -466,6 +495,21 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
               placeholder="Level 1 foundations, animal words, science review..."
             />
           </label>
+
+          <div className="prompt-helper">
+            <div className="prompt-helper-head">
+              <p className="prompt-helper-title">Prompt Another AI</p>
+              <button type="button" className="ghost-button" onClick={handleCopyDeckPrompt}>
+                {deckPromptCopied ? 'Copied' : 'Copy Prompt'}
+              </button>
+            </div>
+            <textarea
+              className="prompt-helper-text"
+              rows={10}
+              value={DECK_GENERATOR_PROMPT}
+              readOnly
+            />
+          </div>
 
           <label className="field">
             <span>Words</span>
