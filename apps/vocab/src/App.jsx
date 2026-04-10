@@ -41,16 +41,47 @@ function deckSecondaryText(deck) {
   return deck.description || `${deck.word_count || 0} pasted words`;
 }
 
-function buildDeckGeneratorPrompt({ topic, readingLevel, wordCount }) {
+function formatAssignmentProgress(progress) {
+  if (!progress) {
+    return 'No progress yet.';
+  }
+
+  const total = Number(progress.total_target_words) || 0;
+  const mastered = Number(progress.mastered_count) || 0;
+  const struggling = Number(progress.struggling_count) || 0;
+  const learning = Math.max(0, (Number(progress.learning_count) || 0) - struggling);
+  const notStarted = Number(progress.not_started_count ?? progress.new_count) || 0;
+  const due = Number(progress.due_count) || 0;
+
+  return `${total} words • ${mastered} mastered • ${notStarted} new • ${learning} learning • ${struggling} struggling • ${due} due now`;
+}
+
+function buildDeckGeneratorPrompt({
+  topic,
+  readingLevel,
+  wordCount,
+  existingWords = [],
+}) {
   const normalizedTopic = String(topic || '').trim() || 'general everyday vocabulary';
   const normalizedReadingLevel = String(readingLevel || '').trim() || 'early elementary';
   const normalizedWordCount = Math.max(1, Number(wordCount) || 20);
+  const normalizedExistingWords = [...new Set((Array.isArray(existingWords) ? existingWords : [])
+    .map((word) => String(word || '').trim().toLowerCase())
+    .filter(Boolean))]
+    .sort((left, right) => left.localeCompare(right));
+  const existingWordsSection = normalizedExistingWords.length > 0
+    ? `\nExisting words already in the deck; do not repeat these or close variants:\n${normalizedExistingWords.join(', ')}\n`
+    : '';
+  const duplicateRule = normalizedExistingWords.length > 0
+    ? '- Do not generate any existing words listed above\n'
+    : '';
 
   return `Generate a vocabulary deck for children.
 
 Topic: ${normalizedTopic}
 Reading level: ${normalizedReadingLevel}
 Number of words: ${normalizedWordCount}
+${existingWordsSection}
 
 Return only plain text rows with pipe-separated columns in this exact format:
 word|definition|wrong choice 1|wrong choice 2|wrong choice 3
@@ -59,7 +90,7 @@ Rules:
 - Produce exactly ${normalizedWordCount} rows
 - One word per line
 - Match the topic and reading level
-- Use short, concrete, child-friendly definitions
+${duplicateRule}- Use short, concrete, child-friendly definitions
 - Wrong choices should be plausible meanings, not nonsense
 - Avoid duplicate words
 - Do not number the rows
@@ -140,10 +171,12 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   const [deckTitle, setDeckTitle] = useState('');
   const [deckDescription, setDeckDescription] = useState('');
   const [deckWords, setDeckWords] = useState('');
+  const [deckTargetId, setDeckTargetId] = useState('');
   const [deckGenerateImages, setDeckGenerateImages] = useState(false);
   const [deckPromptTopic, setDeckPromptTopic] = useState('');
   const [deckPromptReadingLevel, setDeckPromptReadingLevel] = useState('early elementary');
   const [deckPromptWordCount, setDeckPromptWordCount] = useState('20');
+  const [deckPromptIncludeExistingWords, setDeckPromptIncludeExistingWords] = useState(true);
   const [deckPromptCopied, setDeckPromptCopied] = useState(false);
   const [selectedDeckId, setSelectedDeckId] = useState('');
   const [selectedChildId, setSelectedChildId] = useState('');
@@ -221,14 +254,24 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
 
         if (nextJob.status === 'completed') {
           setTrackedImportJobId('');
-          setNotice(`${nextJob.job_type === 'deck' ? 'Deck ready' : 'Book import completed'}: ${nextJob.title}.`);
+          const completedLabel = nextJob.job_type === 'deck_append'
+            ? 'Deck updated'
+            : nextJob.job_type === 'deck'
+              ? 'Deck ready'
+              : 'Book import completed';
+          setNotice(`${completedLabel}: ${nextJob.title}.`);
           onReload();
           return;
         }
 
         if (nextJob.status === 'failed') {
           setTrackedImportJobId('');
-          setError(nextJob.message || (nextJob.job_type === 'deck' ? 'Deck build failed.' : 'Book import failed.'));
+          const failedLabel = nextJob.job_type === 'deck_append'
+            ? 'Deck update failed.'
+            : nextJob.job_type === 'deck'
+              ? 'Deck build failed.'
+              : 'Book import failed.';
+          setError(nextJob.message || failedLabel);
         }
       } catch (error) {
         setTrackedImportJobId('');
@@ -283,25 +326,34 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
     setNotice('');
 
     try {
-      const data = await api.createDeck({
-        title: deckTitle,
-        description: deckDescription,
-        language: 'en',
-        words_text: deckWords,
-        generate_images: deckGenerateImages,
-      });
+      const data = deckTargetId
+        ? await api.appendDeckWords(deckTargetId, {
+            words_text: deckWords,
+            generate_images: deckGenerateImages,
+          })
+        : await api.createDeck({
+            title: deckTitle,
+            description: deckDescription,
+            language: 'en',
+            words_text: deckWords,
+            generate_images: deckGenerateImages,
+          });
 
-      setDeckTitle('');
-      setDeckDescription('');
+      if (!deckTargetId) {
+        setDeckTitle('');
+        setDeckDescription('');
+      }
       setDeckWords('');
       setDeckGenerateImages(false);
       if (data?.job) {
         upsertImportJob(data.job);
         setTrackedImportJobId(data.job.id);
       }
-      setNotice('Deck build started. This page will update when it is ready.');
+      setNotice(deckTargetId
+        ? 'Deck word update started. This page will update when it is ready.'
+        : 'Deck build started. This page will update when it is ready.');
     } catch (error) {
-      setError(error.message || 'Deck build failed.');
+      setError(error.message || (deckTargetId ? 'Deck word update failed.' : 'Deck build failed.'));
     } finally {
       setDeckBusy(false);
     }
@@ -412,13 +464,20 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
 
   const publishedDecks = adminData.decks.filter((deck) => deck.status === 'published');
   const customDecks = adminData.decks.filter((deck) => deck.type !== 'book');
+  const selectedAppendDeck = customDecks.find((deck) => deck.id === deckTargetId) || null;
+  const existingPromptWords = useMemo(() => (
+    deckPromptIncludeExistingWords && selectedAppendDeck
+      ? (selectedAppendDeck.words || []).map((word) => word.lemma)
+      : []
+  ), [deckPromptIncludeExistingWords, selectedAppendDeck]);
   const recentImportJobs = importJobs.slice(0, 8);
   const selectedProfileChild = adminData.children.find((child) => child.user_id === selectedProfileChildId) || null;
   const deckGeneratorPrompt = useMemo(() => buildDeckGeneratorPrompt({
     topic: deckPromptTopic,
     readingLevel: deckPromptReadingLevel,
     wordCount: deckPromptWordCount,
-  }), [deckPromptReadingLevel, deckPromptTopic, deckPromptWordCount]);
+    existingWords: existingPromptWords,
+  }), [deckPromptReadingLevel, deckPromptTopic, deckPromptWordCount, existingPromptWords]);
 
   return (
     <div className="workspace-grid">
@@ -504,18 +563,39 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
 
         <form className="stack" onSubmit={handleCreateDeck}>
           <label className="field">
-            <span>Deck Title</span>
-            <input value={deckTitle} onChange={(event) => setDeckTitle(event.target.value)} required />
+            <span>Deck Action</span>
+            <select value={deckTargetId} onChange={(event) => setDeckTargetId(event.target.value)}>
+              <option value="">Create a new word deck</option>
+              {customDecks.map((deck) => (
+                <option key={deck.id} value={deck.id}>
+                  Add to {deck.title} ({deck.word_ids.length} words)
+                </option>
+              ))}
+            </select>
           </label>
 
-          <label className="field">
-            <span>Description</span>
-            <input
-              value={deckDescription}
-              onChange={(event) => setDeckDescription(event.target.value)}
-              placeholder="Level 1 foundations, animal words, science review..."
-            />
-          </label>
+          {selectedAppendDeck ? (
+            <div className="profile-tuning-summary">
+              <p>Adding words to {selectedAppendDeck.title}.</p>
+              <p>{selectedAppendDeck.word_ids.length} existing words. New assignments will use the updated deck automatically.</p>
+            </div>
+          ) : (
+            <>
+              <label className="field">
+                <span>Deck Title</span>
+                <input value={deckTitle} onChange={(event) => setDeckTitle(event.target.value)} required />
+              </label>
+
+              <label className="field">
+                <span>Description</span>
+                <input
+                  value={deckDescription}
+                  onChange={(event) => setDeckDescription(event.target.value)}
+                  placeholder="Level 1 foundations, animal words, science review..."
+                />
+              </label>
+            </>
+          )}
 
           <div className="prompt-helper">
             <div className="prompt-helper-head">
@@ -554,6 +634,19 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
                 />
               </label>
             </div>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={deckPromptIncludeExistingWords}
+                disabled={!selectedAppendDeck}
+                onChange={(event) => setDeckPromptIncludeExistingWords(event.target.checked)}
+              />
+              <span>
+                {selectedAppendDeck
+                  ? `Include ${selectedAppendDeck.word_ids.length} current deck words in the prompt so the AI avoids repeats`
+                  : 'Choose an existing deck above to include its current words in the prompt'}
+              </span>
+            </label>
             <textarea
               className="prompt-helper-text"
               rows={10}
@@ -589,7 +682,11 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
           </label>
 
           <button type="submit" className="primary-button" disabled={deckBusy}>
-            {deckBusy ? 'Starting…' : 'Build Deck'}
+            {deckBusy
+              ? 'Starting…'
+              : selectedAppendDeck
+                ? 'Add Words To Deck'
+                : 'Build Deck'}
           </button>
         </form>
       </section>
@@ -681,6 +778,23 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
                 Known {selectedProfileChild.profile.known_word_ids.length} • Learning {selectedProfileChild.profile.learning_word_ids.length} • Struggling {selectedProfileChild.profile.struggling_word_ids.length}
               </p>
             </div>
+          ) : null}
+
+          {selectedProfileChild ? (
+            (selectedProfileChild.assignments || []).length > 0 ? (
+              <div className="assignment-admin-list">
+                {(selectedProfileChild.assignments || []).map((assignment) => (
+                  <div key={assignment.id} className="assignment-admin-row">
+                    <div>
+                      <p className="assignment-admin-title">{assignment.deck?.title || 'Assigned deck'}</p>
+                      <p className="assignment-admin-meta">{formatAssignmentProgress(assignment.progress)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="form-note">No active decks assigned to this child.</p>
+            )
           ) : null}
 
           <label className="field">
@@ -906,6 +1020,9 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
                           <p className="assignment-admin-title">{assignment.deck?.title || 'Assigned deck'}</p>
                           <p className="assignment-admin-meta">
                             {formatDeckType(assignment.deck)} • Hints {assignment.settings?.hints_enabled ? 'on' : 'off'} • Images {assignment.settings?.images_enabled ? 'on' : 'off'}
+                          </p>
+                          <p className="assignment-admin-meta">
+                            {formatAssignmentProgress(assignment.progress)}
                           </p>
                         </div>
                         <button

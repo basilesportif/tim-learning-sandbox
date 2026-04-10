@@ -45,7 +45,7 @@ Server environment:
 - `OPENAI_API_KEY`
 
 Large vocab book imports and pasted-word deck builds are queued and processed in the background so heavy jobs do not hit CDN/proxy request timeouts.
-Vocab books become assignable book-backed decks, admins can create custom decks from pasted word lists, and pasted deck rows can optionally include manual definitions plus wrong answer choices. Child sessions pull from easier or harder parts of each deck as performance changes.
+Vocab books become assignable book-backed decks, admins can create and extend custom decks from pasted word lists, and pasted deck rows can optionally include manual definitions plus wrong answer choices. Child sessions pull from easier or harder parts of each deck as performance changes.
 Word mastery is tracked per user per word across all decks.
 
 Artifact extraction for vocab books:

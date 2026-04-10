@@ -80,6 +80,12 @@ export function createApiClient(getToken) {
         body: JSON.stringify(payload),
       }, getToken);
     },
+    appendDeckWords(deckId, payload) {
+      return request(`/admin/decks/${encodeURIComponent(deckId)}/words`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }, getToken);
+    },
     getChildren() {
       return request('/admin/children', { method: 'GET' }, getToken);
     },

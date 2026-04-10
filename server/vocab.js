@@ -752,6 +752,29 @@ function getDeckWordIds(deck) {
   return getSourceWordIds(deck);
 }
 
+function mergeDeckWordPools(existingWordPool, addedWordPool) {
+  const merged = [];
+  const seen = new Set();
+
+  for (const entry of [
+    ...(Array.isArray(existingWordPool) ? existingWordPool : []),
+    ...(Array.isArray(addedWordPool) ? addedWordPool : []),
+  ]) {
+    if (!entry?.word_id || seen.has(entry.word_id)) {
+      continue;
+    }
+
+    seen.add(entry.word_id);
+    merged.push({
+      ...entry,
+      rank: merged.length + 1,
+      difficulty_rank: merged.length + 1,
+    });
+  }
+
+  return merged;
+}
+
 function getAssignmentWordIds(assignment, deck) {
   return unique([
     ...(Array.isArray(assignment?.target_word_ids) ? assignment.target_word_ids : []),
@@ -1366,16 +1389,25 @@ function ensureChildProfile(profiles, user) {
 }
 
 function summarizeChildProgress(profile, assignment, deck) {
-  const progressEntries = getAssignmentWordIds(assignment, deck).map((wordId) => profile.word_progress?.[wordId]).filter(Boolean);
+  const wordIds = getAssignmentWordIds(assignment, deck);
+  const progressEntries = wordIds.map((wordId) => profile.word_progress?.[wordId]).filter(Boolean);
   const mastered = progressEntries.filter((entry) => entry.state === 'mastered').length;
   const due = progressEntries.filter((entry) => isWordDue(entry)).length;
   const learning = progressEntries.filter((entry) => entry.state !== 'mastered').length;
+  const struggling = progressEntries.filter((entry) => (
+    entry.state !== 'mastered'
+    && (entry.wrong_attempts || 0) >= (entry.correct_attempts || 0) + 2
+  )).length;
+  const notStarted = Math.max(0, wordIds.length - progressEntries.length);
 
   return {
     mastered_count: mastered,
     due_count: due,
     learning_count: learning,
-    total_target_words: getAssignmentWordIds(assignment, deck).length,
+    struggling_count: struggling,
+    not_started_count: notStarted,
+    new_count: notStarted,
+    total_target_words: wordIds.length,
   };
 }
 
@@ -2186,6 +2218,108 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     }
   }
 
+  async function runDeckAppendJob(jobId, payload) {
+    const {
+      deckId,
+      title,
+      wordsText,
+      generateImages,
+      maxWordCount,
+    } = payload;
+
+    const startedAt = Date.now();
+
+    try {
+      updateImportJob(importJobsPath, jobId, (job) => ({
+        ...job,
+        status: 'processing',
+        step: 'vocabulary',
+        message: 'Preparing additional deck words.',
+        started_at: job.started_at || nowIso(),
+      }));
+
+      const store = readStore(paths);
+      const deck = store.decks.find((item) => item.id === deckId);
+      if (!deck) {
+        throw new Error('Deck was not found.');
+      }
+
+      const existingWordIds = new Set(getDeckWordIds(deck));
+      const { wordIds, wordPool } = await buildWordPoolForWordList({
+        store,
+        sourceId: deck.id,
+        sourceTitle: deck.title || title,
+        wordsText,
+        maxWordCount,
+        generateImages,
+        imagesDir,
+        onProgress: ({ message, wordTotal, wordCompleted }) => {
+          updateImportJob(importJobsPath, jobId, (job) => ({
+            ...job,
+            status: 'processing',
+            step: 'vocabulary',
+            message,
+            word_total: wordTotal,
+            word_completed: wordCompleted,
+          }));
+        },
+      });
+
+      if (wordIds.length === 0) {
+        throw new Error('No usable words were found in the pasted list.');
+      }
+
+      const addedWordIds = wordIds.filter((wordId) => !existingWordIds.has(wordId));
+      const mergedWordPool = mergeDeckWordPools(getDeckWordPool(deck), wordPool);
+      const mergedWordIds = mergedWordPool.map((entry) => entry.word_id);
+      const duplicateCount = Math.max(0, wordIds.length - addedWordIds.length);
+
+      deck.word_ids = mergedWordIds;
+      deck.word_pool_ids = mergedWordIds;
+      deck.word_pool = mergedWordPool;
+      deck.word_count = mergedWordIds.length;
+      deck.updated_at = nowIso();
+      deck.settings = {
+        ...(deck.settings || {}),
+        generate_images: Boolean(deck.settings?.generate_images || generateImages),
+        max_word_count: Math.max(Number(deck.settings?.max_word_count) || 0, maxWordCount),
+      };
+
+      writeStore(paths, store);
+
+      updateImportJob(importJobsPath, jobId, (job) => ({
+        ...job,
+        status: 'completed',
+        step: 'complete',
+        message: `Added ${addedWordIds.length} new words to "${deck.title}".${duplicateCount ? ` Skipped ${duplicateCount} already in the deck.` : ''}`,
+        finished_at: nowIso(),
+        duration_ms: Date.now() - startedAt,
+        deck_id: deck.id,
+        imported_word_count: addedWordIds.length,
+        duplicate_word_count: duplicateCount,
+        word_total: wordIds.length,
+        word_completed: wordIds.length,
+      }));
+    } catch (error) {
+      console.error('[vocab] Deck word append failed', {
+        title,
+        deckId,
+        jobId,
+        error: error?.stack || error?.message || error,
+      });
+
+      updateImportJob(importJobsPath, jobId, (job) => ({
+        ...job,
+        status: 'failed',
+        step: 'failed',
+        message: error?.message || 'Deck word update failed on the server.',
+        error: error?.message || 'Deck word update failed on the server.',
+        finished_at: nowIso(),
+        duration_ms: Date.now() - startedAt,
+      }));
+    }
+  }
+
   async function requireSignedIn(req, res, next) {
     if (!clerkEnabled) {
       sendAuthConfigError(res);
@@ -2389,6 +2523,67 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       generateImages,
       maxWordCount,
       createdBy: req.vocabUser.user_id,
+    }));
+
+    res.status(202).json({ job });
+  });
+
+  app.post(`/${appName}/api/admin/decks/:deckId/words`, requireAdmin, (req, res) => {
+    const store = readStore(paths);
+    const deckId = String(req.params.deckId || '').trim();
+    const deck = store.decks.find((item) => item.id === deckId);
+    const wordsText = String(req.body?.words_text || '').trim();
+    const generateImages = Boolean(req.body?.generate_images);
+    const maxWordCount = clamp(
+      Number(req.body?.max_word_count) || MAX_BOOK_WORD_POOL_SIZE,
+      1,
+      MAX_BOOK_WORD_POOL_SIZE
+    );
+
+    if (!deck) {
+      res.status(404).json({
+        error: 'deck_not_found',
+        message: 'Choose a custom word deck to update.',
+      });
+      return;
+    }
+
+    if (!wordsText) {
+      res.status(400).json({
+        error: 'words_required',
+        message: 'Paste a list of words to add to the deck.',
+      });
+      return;
+    }
+
+    const createdAt = nowIso();
+    const job = upsertImportJob(importJobsPath, {
+      id: `deck_append_${slugify(deck.title)}_${crypto.randomUUID().slice(0, 8)}`,
+      title: deck.title,
+      description: deck.description || '',
+      language: deck.language || 'en',
+      job_type: 'deck_append',
+      status: 'queued',
+      step: 'queued',
+      message: 'Deck word update queued.',
+      page_total: 0,
+      page_completed: 0,
+      word_total: 0,
+      word_completed: 0,
+      generate_images: generateImages,
+      max_word_count: maxWordCount,
+      deck_id: deck.id,
+      created_by: req.vocabUser.user_id,
+      created_at: createdAt,
+      updated_at: createdAt,
+    });
+
+    enqueueImportJob(() => runDeckAppendJob(job.id, {
+      deckId: deck.id,
+      title: deck.title,
+      wordsText,
+      generateImages,
+      maxWordCount,
     }));
 
     res.status(202).json({ job });
