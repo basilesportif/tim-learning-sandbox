@@ -536,14 +536,11 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
 
               <label className="field">
                 <span>Reading Level</span>
-                <select
+                <input
                   value={deckPromptReadingLevel}
                   onChange={(event) => setDeckPromptReadingLevel(event.target.value)}
-                >
-                  <option value="early elementary">Early Elementary</option>
-                  <option value="late elementary">Late Elementary</option>
-                  <option value="middle grade">Middle Grade</option>
-                </select>
+                  placeholder="early elementary, grade 3, strong readers..."
+                />
               </label>
 
               <label className="field">
