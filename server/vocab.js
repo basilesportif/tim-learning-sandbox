@@ -378,9 +378,19 @@ function normalizeExplicitLemma(rawWord) {
     .replace(/[^a-z'-]/g, '');
 }
 
-function extractCandidateWordsFromWordList(text, limit = MAX_BOOK_WORD_POOL_SIZE) {
+function createExplicitLemmaCandidate(lemma, manualMetadata = null) {
+  return {
+    lemma,
+    count: 1,
+    snippets: [],
+    heuristic_score: scoreLemmaDifficulty(lemma, 1),
+    manual_metadata: manualMetadata,
+  };
+}
+
+function extractPlainWordListCandidates(text, limit = MAX_BOOK_WORD_POOL_SIZE, existingSeen = new Set()) {
   const matches = String(text || '').match(/[A-Za-z][A-Za-z'-]{1,}/g) || [];
-  const seen = new Set();
+  const seen = new Set(existingSeen);
   const candidates = [];
 
   for (const rawWord of matches) {
@@ -390,12 +400,7 @@ function extractCandidateWordsFromWordList(text, limit = MAX_BOOK_WORD_POOL_SIZE
     }
 
     seen.add(lemma);
-    candidates.push({
-      lemma,
-      count: 1,
-      snippets: [],
-      heuristic_score: scoreLemmaDifficulty(lemma, 1),
-    });
+    candidates.push(createExplicitLemmaCandidate(lemma));
 
     if (candidates.length >= limit) {
       break;
@@ -403,6 +408,83 @@ function extractCandidateWordsFromWordList(text, limit = MAX_BOOK_WORD_POOL_SIZE
   }
 
   return candidates;
+}
+
+function splitStructuredDeckRow(line) {
+  if (line.includes('\t')) {
+    return line.split('\t').map((part) => sanitizeText(part));
+  }
+  if (line.includes('|')) {
+    return line.split('|').map((part) => sanitizeText(part));
+  }
+  return null;
+}
+
+function isStructuredDeckHeader(columns) {
+  const first = String(columns?.[0] || '').trim().toLowerCase();
+  const second = String(columns?.[1] || '').trim().toLowerCase();
+  return ['word', 'lemma', 'term', 'vocab'].includes(first) && second.includes('definition');
+}
+
+function extractCandidateWordsFromWordList(text, limit = MAX_BOOK_WORD_POOL_SIZE) {
+  const lines = String(text || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const seen = new Set();
+  const structuredCandidates = [];
+  const plainLines = [];
+
+  for (const line of lines) {
+    if (structuredCandidates.length >= limit) {
+      break;
+    }
+
+    const columns = splitStructuredDeckRow(line);
+    if (!columns || columns.length < 2) {
+      plainLines.push(line);
+      continue;
+    }
+
+    if (isStructuredDeckHeader(columns)) {
+      continue;
+    }
+
+    const lemma = normalizeExplicitLemma(columns[0]);
+    if (!lemma || seen.has(lemma)) {
+      continue;
+    }
+
+    const definition = sanitizeText(columns[1] || '');
+    const distractors = columns.slice(2, 5).map((value) => sanitizeText(value)).filter(Boolean);
+    const hint = sanitizeText(columns[5] || '');
+    const usageExamples = columns.slice(6, 8).map((value) => sanitizeText(value)).filter(Boolean);
+    const manualMetadata = definition
+      ? {
+          definition,
+          distractors,
+          hint,
+          usageExamples,
+        }
+      : null;
+
+    seen.add(lemma);
+    structuredCandidates.push(createExplicitLemmaCandidate(lemma, manualMetadata));
+  }
+
+  if (structuredCandidates.length === 0) {
+    return extractPlainWordListCandidates(text, limit);
+  }
+
+  const remainingLimit = Math.max(0, limit - structuredCandidates.length);
+  if (remainingLimit === 0 || plainLines.length === 0) {
+    return structuredCandidates;
+  }
+
+  return [
+    ...structuredCandidates,
+    ...extractPlainWordListCandidates(plainLines.join('\n'), remainingLimit, seen),
+  ];
 }
 
 function scoreLemmaDifficulty(lemma, count) {
@@ -486,6 +568,36 @@ function fallbackWordMetadata(candidate) {
     usageExamples: buildFallbackUsageExamples(candidate),
     imagePrompt: `A simple child-friendly illustration representing the word "${candidate.lemma}" with no text.`,
     needsReview: true,
+  };
+}
+
+function manualWordMetadata(candidate) {
+  const provided = candidate?.manual_metadata;
+  if (!provided || typeof provided !== 'object') {
+    return null;
+  }
+
+  const definition = sanitizeText(provided.definition || '');
+  if (!definition) {
+    return null;
+  }
+
+  const fallback = fallbackWordMetadata(candidate);
+  const distractors = unique((Array.isArray(provided.distractors) ? provided.distractors : [])
+    .map((item) => sanitizeText(item))
+    .filter(Boolean)
+    .filter((item) => item !== definition))
+    .slice(0, 3);
+
+  return {
+    difficultyBand: heuristicDifficultyBand(candidate.lemma, candidate.count),
+    difficultyScore: heuristicDifficultyScore(candidate.lemma, candidate.count),
+    definition,
+    hint: sanitizeText(provided.hint || '') || fallback.hint,
+    distractors: normalizeChoiceSet(definition, distractors).filter((choice) => choice !== definition).slice(0, 3),
+    usageExamples: normalizeUsageExamples(provided.usageExamples, fallback.usageExamples),
+    imagePrompt: fallback.imagePrompt,
+    needsReview: false,
   };
 }
 
@@ -707,8 +819,8 @@ function getAssignmentWordEntries(assignment, deck, wordCatalogById) {
   return getWordEntriesForIds(getAssignmentWordIds(assignment, deck), deck, wordCatalogById);
 }
 
-function buildWordPoolEntry(candidate, wordRecord, rank) {
-  return {
+function buildWordPoolEntry(candidate, wordRecord, rank, metadataOverride = null) {
+  const entry = {
     word_id: wordRecord.id,
     lemma: candidate.lemma,
     rank,
@@ -719,6 +831,15 @@ function buildWordPoolEntry(candidate, wordRecord, rank) {
     difficulty_band: wordRecord.difficulty_band,
     difficulty_score: normalizeDifficultyScore(wordRecord.difficulty_score, candidate),
   };
+
+  if (metadataOverride) {
+    entry.definition = metadataOverride.definition;
+    entry.hint = metadataOverride.hint;
+    entry.distractors = metadataOverride.distractors;
+    entry.usage_examples = metadataOverride.usageExamples;
+  }
+
+  return entry;
 }
 
 function compareWordPoolEntries(left, right) {
@@ -992,6 +1113,9 @@ async function buildWordPoolFromCandidates({
   for (let batchStart = 0; batchStart < candidates.length; batchStart += WORD_METADATA_BATCH_SIZE) {
     const batch = candidates.slice(batchStart, batchStart + WORD_METADATA_BATCH_SIZE);
     const candidatesNeedingMetadata = batch.filter((candidate) => {
+      if (manualWordMetadata(candidate)) {
+        return false;
+      }
       const existing = wordCatalogById[`word_${slugify(candidate.lemma)}`];
       return !existing
         || !existing.definition
@@ -1010,6 +1134,7 @@ async function buildWordPoolFromCandidates({
       const wordId = `word_${slugify(candidate.lemma)}`;
       let wordRecord = wordCatalogById[wordId];
       let generatedImageFile = null;
+      const providedMetadata = manualWordMetadata(candidate);
       const refreshedMetadata = metadataByLemma[candidate.lemma] || null;
 
       if (typeof onProgress === 'function') {
@@ -1022,7 +1147,7 @@ async function buildWordPoolFromCandidates({
       }
 
       if (!wordRecord) {
-        const metadata = refreshedMetadata || fallbackWordMetadata(candidate);
+        const metadata = providedMetadata || refreshedMetadata || fallbackWordMetadata(candidate);
         if (generateImages && generatedImageCount < MAX_GENERATED_WORD_IMAGES_PER_BOOK) {
           generatedImageFile = await maybeGenerateWordImage(metadata.imagePrompt, wordId, imagesDir);
           if (generatedImageFile) {
@@ -1037,30 +1162,31 @@ async function buildWordPoolFromCandidates({
         wordRecord.count_in_source = Math.max(Number(wordRecord.count_in_source) || 0, candidate.count);
         wordRecord.count_in_book = Math.max(Number(wordRecord.count_in_book) || 0, candidate.count);
         wordRecord.snippets = unique([...(wordRecord.snippets || []), ...candidate.snippets]).slice(0, 4);
-        if (refreshedMetadata) {
-          const definitionChoices = normalizeChoiceSet(refreshedMetadata.definition, refreshedMetadata.distractors || []);
-          const usageExamples = normalizeUsageExamples(refreshedMetadata.usageExamples, buildFallbackUsageExamples(candidate));
-          const difficultyScore = normalizeDifficultyScore(refreshedMetadata.difficultyScore, candidate);
+        const metadataToApply = providedMetadata || refreshedMetadata;
+        if (metadataToApply) {
+          const definitionChoices = normalizeChoiceSet(metadataToApply.definition, metadataToApply.distractors || []);
+          const usageExamples = normalizeUsageExamples(metadataToApply.usageExamples, buildFallbackUsageExamples(candidate));
+          const difficultyScore = normalizeDifficultyScore(metadataToApply.difficultyScore, candidate);
           wordRecord.difficulty_band = clamp(
-            Number(wordRecord.difficulty_band) || Number(refreshedMetadata.difficultyBand) || heuristicDifficultyBand(candidate.lemma, candidate.count),
+            Number(wordRecord.difficulty_band) || Number(metadataToApply.difficultyBand) || heuristicDifficultyBand(candidate.lemma, candidate.count),
             1,
             6
           );
           if (!Number.isFinite(Number(wordRecord.difficulty_score))) {
             wordRecord.difficulty_score = difficultyScore;
           }
-          wordRecord.definition = String(wordRecord.definition || '').trim() || refreshedMetadata.definition;
-          wordRecord.hint = String(wordRecord.hint || '').trim() || refreshedMetadata.hint;
+          wordRecord.definition = String(wordRecord.definition || '').trim() || metadataToApply.definition;
+          wordRecord.hint = String(wordRecord.hint || '').trim() || metadataToApply.hint;
           if (!Array.isArray(wordRecord.usage_examples) || wordRecord.usage_examples.length < 2) {
             wordRecord.usage_examples = usageExamples;
           }
           if (!Array.isArray(wordRecord.distractors) || wordRecord.distractors.length < 3) {
-            wordRecord.distractors = definitionChoices.filter((choice) => choice !== refreshedMetadata.definition).slice(0, 3);
+            wordRecord.distractors = definitionChoices.filter((choice) => choice !== metadataToApply.definition).slice(0, 3);
           }
-          wordRecord.image_prompt = String(wordRecord.image_prompt || '').trim() || refreshedMetadata.imagePrompt;
-          wordRecord.needs_review = Boolean(wordRecord.needs_review || refreshedMetadata.needsReview);
+          wordRecord.image_prompt = String(wordRecord.image_prompt || '').trim() || metadataToApply.imagePrompt;
+          wordRecord.needs_review = Boolean(wordRecord.needs_review || metadataToApply.needsReview);
           if (!wordRecord.image_path && generateImages && generatedImageCount < MAX_GENERATED_WORD_IMAGES_PER_BOOK) {
-            generatedImageFile = await maybeGenerateWordImage(refreshedMetadata.imagePrompt, wordId, imagesDir);
+            generatedImageFile = await maybeGenerateWordImage(metadataToApply.imagePrompt, wordId, imagesDir);
             if (generatedImageFile) {
               generatedImageCount += 1;
               wordRecord.image_path = join(imagesDir, generatedImageFile);
@@ -1070,7 +1196,7 @@ async function buildWordPoolFromCandidates({
         wordRecord.updated_at = nowIso();
       }
 
-      unsortedWordPool.push(buildWordPoolEntry(candidate, wordRecord, overallIndex + 1));
+      unsortedWordPool.push(buildWordPoolEntry(candidate, wordRecord, overallIndex + 1, providedMetadata));
 
       if (typeof onProgress === 'function') {
         onProgress({
@@ -1269,8 +1395,7 @@ function pickReviewWords(profile, candidateEntries, limit) {
       }
       return (a.rank || Number.MAX_SAFE_INTEGER) - (b.rank || Number.MAX_SAFE_INTEGER);
     })
-    .slice(0, limit)
-    .map((entry) => entry.word);
+    .slice(0, limit);
 }
 
 function pickNewWords(profile, candidateEntries, limit) {
@@ -1301,21 +1426,30 @@ function pickNewWords(profile, candidateEntries, limit) {
       return (a.word.lemma || '').localeCompare(b.word.lemma || '');
     });
 
-  return candidates.slice(0, limit).map((entry) => entry.word);
+  return candidates.slice(0, limit);
 }
 
-function buildCard(word, assignment, imageUrl) {
-  const choices = [word.definition, ...(word.distractors || [])].slice(0, 4);
+function buildCard(entry, assignment, imageUrl) {
+  const word = entry.word;
+  const definition = String(entry.definition || word.definition || '').trim();
+  const distractors = Array.isArray(entry.distractors) && entry.distractors.length > 0
+    ? entry.distractors
+    : (Array.isArray(word.distractors) ? word.distractors : []);
+  const usageExamples = Array.isArray(entry.usage_examples) && entry.usage_examples.length > 0
+    ? entry.usage_examples
+    : (Array.isArray(word.usage_examples) ? word.usage_examples : []);
+  const hint = String(entry.hint || word.hint || '').trim();
+  const choices = [definition, ...distractors].slice(0, 4);
   const shuffled = [...choices].sort(() => Math.random() - 0.5);
-  const correctIndex = shuffled.findIndex((choice) => choice === word.definition);
+  const correctIndex = shuffled.findIndex((choice) => choice === definition);
 
   return {
     card_id: crypto.randomUUID(),
     word_id: word.id,
     lemma: word.lemma,
-    definition: word.definition,
-    usage_examples: Array.isArray(word.usage_examples) ? word.usage_examples.slice(0, 2) : [],
-    hint: assignment.settings.hints_enabled ? word.hint : '',
+    definition,
+    usage_examples: usageExamples.slice(0, 2),
+    hint: assignment.settings.hints_enabled ? hint : '',
     image_url: assignment.settings.images_enabled && imageUrl ? imageUrl : null,
     choices: shuffled,
     correct_index: correctIndex,
@@ -1337,25 +1471,33 @@ function rebuildSessionCards(session, assignment, deck, profile, wordCatalogById
     deck,
     wordCatalogById
   );
-  const reviewWords = pickReviewWords(
+  const reviewEntries = pickReviewWords(
     profile,
     remainingEntries,
     Number(assignment.settings?.max_review_words) || DEFAULT_MAX_REVIEW_WORDS
   );
-  const reviewWordIds = new Set(reviewWords.map((word) => word.id));
-  const newWords = pickNewWords(
+  const reviewWordIds = new Set(reviewEntries.map((entry) => entry.word.id));
+  const newEntries = pickNewWords(
     profile,
     remainingEntries.filter((entry) => !reviewWordIds.has(entry.word?.id)),
     Number(assignment.settings?.max_new_words) || DEFAULT_MAX_NEW_WORDS
   );
-  const selectedWords = unique([...reviewWords, ...newWords].map((word) => word.id))
-    .map((wordId) => wordCatalogById[wordId])
-    .filter(Boolean);
+  const selectedEntries = [];
+  const selectedWordIds = new Set();
 
-  session.cards = selectedWords.map((word) => buildCard(
-    word,
+  for (const entry of [...reviewEntries, ...newEntries]) {
+    const wordId = entry.word?.id;
+    if (!wordId || selectedWordIds.has(wordId)) {
+      continue;
+    }
+    selectedWordIds.add(wordId);
+    selectedEntries.push(entry);
+  }
+
+  session.cards = selectedEntries.map((entry) => buildCard(
+    entry,
     assignment,
-    word.image_path ? `/${APP_NAME}/api/word-images/${encodeURIComponent(word.id)}` : null
+    entry.word.image_path ? `/${APP_NAME}/api/word-images/${encodeURIComponent(entry.word.id)}` : null
   ));
   session.updated_at = nowIso();
   return session.cards;

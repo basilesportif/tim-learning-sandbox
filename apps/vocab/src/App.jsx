@@ -473,10 +473,16 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
               rows={8}
               value={deckWords}
               onChange={(event) => setDeckWords(event.target.value)}
-              placeholder="Paste words separated by new lines, commas, or spaces."
+              placeholder={'big\tvery large\ttiny\tvery loud\tfull of water\ncurious\twanting to know more\tready for bed\tmade of metal\teasy to spill'}
               required
             />
           </label>
+
+          <p className="form-note">
+            Paste either a simple word list, or one word per line with tab-separated columns:
+            word, definition, wrong choice 1, wrong choice 2, wrong choice 3.
+            Optional extra columns: hint, example 1, example 2. Pipe separators also work.
+          </p>
 
           <label className="toggle">
             <input

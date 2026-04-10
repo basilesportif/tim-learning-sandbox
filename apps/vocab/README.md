@@ -6,6 +6,7 @@ Private vocabulary prep for books and custom word decks.
 
 - Admin signs in with Clerk and imports books from pasted text, `.txt`, or page photos
 - Admin can also build custom word decks from a pasted word list
+- Pasted word decks can include manual definitions and wrong answer choices per row
 - OCR page photos are processed in filename order, so names like `001.jpg`, `002.jpg`, `003.jpg` control page order
 - Book imports and pasted-word deck builds run as background jobs so large jobs do not time out the browser request
 - Imported books become assignable book-backed decks, and custom word lists become assignable word decks
@@ -14,6 +15,23 @@ Private vocabulary prep for books and custom word decks.
 - Child users sign in with Clerk and see only their own assignments
 - Word mastery is tracked per user per word across all decks
 - Sessions use multiple-choice meaning checks, optional hints, optional illustrations, and light spaced repetition
+
+### Pasted Deck Format
+
+For a simple deck, paste just words separated by spaces, commas, or new lines.
+
+For manual answer content, paste one word per line with tab-separated columns:
+
+`word<TAB>definition<TAB>wrong choice 1<TAB>wrong choice 2<TAB>wrong choice 3`
+
+Optional extra columns:
+- `hint`
+- `example 1`
+- `example 2`
+
+Pipe-separated rows also work:
+
+`word | definition | wrong choice 1 | wrong choice 2 | wrong choice 3`
 
 ## Required Environment
 
