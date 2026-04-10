@@ -27,6 +27,20 @@ function formatBand(value) {
   return `Band ${band}`;
 }
 
+function formatDeckType(deck) {
+  return deck?.type === 'book' ? 'Book deck' : 'Word deck';
+}
+
+function deckSecondaryText(deck) {
+  if (!deck) {
+    return '';
+  }
+  if (deck.type === 'book') {
+    return deck.author || 'Imported book';
+  }
+  return deck.description || `${deck.word_count || 0} pasted words`;
+}
+
 function defaultAdaptiveSettings(profile) {
   return {
     target_band: String(profile?.target_band || 2),
@@ -68,10 +82,10 @@ function ShellHeader({ role, name, onRefresh }) {
     <header className="shell-header">
       <div>
         <p className="eyebrow">vocab</p>
-        <h1>{role === 'admin' ? 'Book Prep Console' : 'Today’s Word Run'}</h1>
+        <h1>{role === 'admin' ? 'Deck Prep Console' : 'Today’s Word Run'}</h1>
         <p className="subtitle">
           {role === 'admin'
-            ? 'Import books, publish review decks, and assign them to children.'
+            ? 'Import books, build word decks, and assign the right practice queue to each child.'
             : `Signed in as ${name}. Keep the pace light and keep the cards moving.`}
         </p>
       </div>
@@ -87,19 +101,24 @@ function ShellHeader({ role, name, onRefresh }) {
 }
 
 function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
-  const [title, setTitle] = useState('');
-  const [author, setAuthor] = useState('');
-  const [text, setText] = useState('');
+  const [bookTitle, setBookTitle] = useState('');
+  const [bookAuthor, setBookAuthor] = useState('');
+  const [bookText, setBookText] = useState('');
   const [language, setLanguage] = useState('en');
-  const [generateImages, setGenerateImages] = useState(false);
+  const [bookGenerateImages, setBookGenerateImages] = useState(false);
   const [textFile, setTextFile] = useState(null);
   const [ocrFiles, setOcrFiles] = useState([]);
-  const [selectedBookId, setSelectedBookId] = useState('');
+  const [deckTitle, setDeckTitle] = useState('');
+  const [deckDescription, setDeckDescription] = useState('');
+  const [deckWords, setDeckWords] = useState('');
+  const [deckGenerateImages, setDeckGenerateImages] = useState(false);
+  const [selectedDeckId, setSelectedDeckId] = useState('');
   const [selectedChildId, setSelectedChildId] = useState('');
   const [selectedProfileChildId, setSelectedProfileChildId] = useState('');
   const [enableHints, setEnableHints] = useState(true);
   const [enableImages, setEnableImages] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
+  const [deckBusy, setDeckBusy] = useState(false);
   const [assignBusy, setAssignBusy] = useState(false);
   const [updatingAssignmentId, setUpdatingAssignmentId] = useState('');
   const [savingProfileChildId, setSavingProfileChildId] = useState('');
@@ -112,8 +131,10 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   }, []);
 
   useEffect(() => {
-    if (!selectedBookId && adminData.books[0]) {
-      setSelectedBookId(adminData.books[0].id);
+    const firstPublishedDeck = adminData.decks.find((deck) => deck.status === 'published');
+    const hasSelectedDeck = adminData.decks.some((deck) => deck.id === selectedDeckId && deck.status === 'published');
+    if (!hasSelectedDeck) {
+      setSelectedDeckId(firstPublishedDeck?.id || '');
     }
     if (!selectedChildId && adminData.children[0]) {
       setSelectedChildId(adminData.children[0].user_id);
@@ -121,7 +142,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
     if (!selectedProfileChildId && adminData.children[0]) {
       setSelectedProfileChildId(adminData.children[0].user_id);
     }
-  }, [adminData.books, adminData.children, selectedBookId, selectedChildId, selectedProfileChildId]);
+  }, [adminData.decks, adminData.children, selectedDeckId, selectedChildId, selectedProfileChildId]);
 
   useEffect(() => {
     const selectedProfileChild = adminData.children.find((child) => child.user_id === selectedProfileChildId)
@@ -167,14 +188,14 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
 
         if (nextJob.status === 'completed') {
           setTrackedImportJobId('');
-          setNotice(`Book import completed: ${nextJob.title}.`);
+          setNotice(`${nextJob.job_type === 'deck' ? 'Deck ready' : 'Book import completed'}: ${nextJob.title}.`);
           onReload();
           return;
         }
 
         if (nextJob.status === 'failed') {
           setTrackedImportJobId('');
-          setError(nextJob.message || 'Book import failed.');
+          setError(nextJob.message || (nextJob.job_type === 'deck' ? 'Deck build failed.' : 'Book import failed.'));
         }
       } catch (error) {
         setTrackedImportJobId('');
@@ -195,21 +216,21 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
 
     try {
       const data = await api.importBook({
-        title,
-        author,
+        title: bookTitle,
+        author: bookAuthor,
         language,
-        text: text.trim(),
-        text_file: !text.trim() ? textFile : null,
+        text: bookText.trim(),
+        text_file: !bookText.trim() ? textFile : null,
         ocr_files: sortFilesByName(ocrFiles),
-        generate_images: generateImages,
+        generate_images: bookGenerateImages,
       });
 
-      setTitle('');
-      setAuthor('');
-      setText('');
+      setBookTitle('');
+      setBookAuthor('');
+      setBookText('');
       setTextFile(null);
       setOcrFiles([]);
-      setGenerateImages(false);
+      setBookGenerateImages(false);
       if (data?.job) {
         upsertImportJob(data.job);
         setTrackedImportJobId(data.job.id);
@@ -219,6 +240,37 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
       setError(error.message || 'Book import failed.');
     } finally {
       setImportBusy(false);
+    }
+  }
+
+  async function handleCreateDeck(event) {
+    event.preventDefault();
+    setDeckBusy(true);
+    setError('');
+    setNotice('');
+
+    try {
+      const data = await api.createDeck({
+        title: deckTitle,
+        description: deckDescription,
+        language: 'en',
+        words_text: deckWords,
+        generate_images: deckGenerateImages,
+      });
+
+      setDeckTitle('');
+      setDeckDescription('');
+      setDeckWords('');
+      setDeckGenerateImages(false);
+      if (data?.job) {
+        upsertImportJob(data.job);
+        setTrackedImportJobId(data.job.id);
+      }
+      setNotice('Deck build started. This page will update when it is ready.');
+    } catch (error) {
+      setError(error.message || 'Deck build failed.');
+    } finally {
+      setDeckBusy(false);
     }
   }
 
@@ -236,8 +288,8 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
 
   async function handleAssign(event) {
     event.preventDefault();
-    if (!selectedBookId || !selectedChildId) {
-      setError('Choose both a book and a child profile before assigning.');
+    if (!selectedDeckId || !selectedChildId) {
+      setError('Choose both a deck and a child profile before assigning.');
       return;
     }
 
@@ -246,7 +298,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
     setNotice('');
     try {
       await api.createAssignment({
-        book_id: selectedBookId,
+        deck_id: selectedDeckId,
         child_user_id: selectedChildId,
         settings: {
           hints_enabled: enableHints,
@@ -274,7 +326,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
           hints_enabled: !assignment.settings?.hints_enabled,
         },
       });
-      setNotice(`Hints ${assignment.settings?.hints_enabled ? 'disabled' : 'enabled'} for ${assignment.book?.title || 'the assignment'}.`);
+      setNotice(`Hints ${assignment.settings?.hints_enabled ? 'disabled' : 'enabled'} for ${assignment.deck?.title || 'the assignment'}.`);
       await onReload();
     } catch (error) {
       setError(error.message || 'Could not update assignment settings.');
@@ -313,7 +365,8 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
     }
   }
 
-  const publishedBooks = adminData.books.filter((book) => book.status === 'published');
+  const publishedDecks = adminData.decks.filter((deck) => deck.status === 'published');
+  const customDecks = adminData.decks.filter((deck) => deck.type !== 'book');
   const recentImportJobs = importJobs.slice(0, 8);
   const selectedProfileChild = adminData.children.find((child) => child.user_id === selectedProfileChildId) || null;
 
@@ -331,12 +384,12 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
         <form className="stack" onSubmit={handleImport}>
           <label className="field">
             <span>Title</span>
-            <input value={title} onChange={(event) => setTitle(event.target.value)} required />
+            <input value={bookTitle} onChange={(event) => setBookTitle(event.target.value)} required />
           </label>
 
           <label className="field">
             <span>Author</span>
-            <input value={author} onChange={(event) => setAuthor(event.target.value)} />
+            <input value={bookAuthor} onChange={(event) => setBookAuthor(event.target.value)} />
           </label>
 
           <label className="field">
@@ -350,8 +403,8 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
             <span>Paste Text</span>
             <textarea
               rows={8}
-              value={text}
-              onChange={(event) => setText(event.target.value)}
+              value={bookText}
+              onChange={(event) => setBookText(event.target.value)}
               placeholder="Paste plain text here, or leave this blank and upload a .txt file or page photos."
             />
           </label>
@@ -378,8 +431,8 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
           <label className="toggle">
             <input
               type="checkbox"
-              checked={generateImages}
-              onChange={(event) => setGenerateImages(event.target.checked)}
+              checked={bookGenerateImages}
+              onChange={(event) => setBookGenerateImages(event.target.checked)}
             />
             <span>Generate illustrations for imported words when available</span>
           </label>
@@ -390,13 +443,63 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
         </form>
       </section>
 
+      <section className="panel import-panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Word Deck</p>
+            <h2>Build From A Word List</h2>
+          </div>
+          <span className="panel-chip">Copy and paste</span>
+        </div>
+
+        <form className="stack" onSubmit={handleCreateDeck}>
+          <label className="field">
+            <span>Deck Title</span>
+            <input value={deckTitle} onChange={(event) => setDeckTitle(event.target.value)} required />
+          </label>
+
+          <label className="field">
+            <span>Description</span>
+            <input
+              value={deckDescription}
+              onChange={(event) => setDeckDescription(event.target.value)}
+              placeholder="Level 1 foundations, animal words, science review..."
+            />
+          </label>
+
+          <label className="field">
+            <span>Words</span>
+            <textarea
+              rows={8}
+              value={deckWords}
+              onChange={(event) => setDeckWords(event.target.value)}
+              placeholder="Paste words separated by new lines, commas, or spaces."
+              required
+            />
+          </label>
+
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={deckGenerateImages}
+              onChange={(event) => setDeckGenerateImages(event.target.checked)}
+            />
+            <span>Generate illustrations for deck words when available</span>
+          </label>
+
+          <button type="submit" className="primary-button" disabled={deckBusy}>
+            {deckBusy ? 'Starting…' : 'Build Deck'}
+          </button>
+        </form>
+      </section>
+
       <section className="panel assign-panel">
         <div className="panel-head">
           <div>
             <p className="eyebrow">Assign</p>
             <h2>Create A Practice Deck</h2>
           </div>
-          <span className="panel-chip">{publishedBooks.length} published books</span>
+          <span className="panel-chip">{publishedDecks.length} published decks</span>
         </div>
 
         <form className="stack" onSubmit={handleAssign}>
@@ -413,12 +516,12 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
           </label>
 
           <label className="field">
-            <span>Book</span>
-            <select value={selectedBookId} onChange={(event) => setSelectedBookId(event.target.value)}>
-              <option value="">Choose a published book</option>
-              {publishedBooks.map((book) => (
-                <option key={book.id} value={book.id}>
-                  {book.title}
+            <span>Deck</span>
+            <select value={selectedDeckId} onChange={(event) => setSelectedDeckId(event.target.value)}>
+              <option value="">Choose a published deck</option>
+              {publishedDecks.map((deck) => (
+                <option key={deck.id} value={deck.id}>
+                  {deck.title} ({formatDeckType(deck)})
                 </option>
               ))}
             </select>
@@ -443,7 +546,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
           </label>
 
           <button type="submit" className="primary-button" disabled={assignBusy}>
-            {assignBusy ? 'Assigning…' : 'Assign Book'}
+            {assignBusy ? 'Assigning…' : 'Assign Deck'}
           </button>
         </form>
       </section>
@@ -588,6 +691,43 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
       <section className="panel list-panel">
         <div className="panel-head">
           <div>
+            <p className="eyebrow">Decks</p>
+            <h2>Curated Word Decks</h2>
+          </div>
+        </div>
+
+        <div className="card-list">
+          {customDecks.length === 0 ? (
+            <p className="empty-state">No custom word decks yet.</p>
+          ) : (
+            customDecks.map((deck) => (
+              <article key={deck.id} className="list-card">
+                <div className="list-card-head">
+                  <div>
+                    <h3>{deck.title}</h3>
+                    <p>{deckSecondaryText(deck)}</p>
+                  </div>
+                  <span className={`status-pill status-${deck.status}`}>{deck.status}</span>
+                </div>
+                <p>
+                  {deck.word_ids.length} words • {formatDeckType(deck)}
+                </p>
+                <div className="token-row">
+                  {deck.words.slice(0, 8).map((word) => (
+                    <span key={word.id} className="token">
+                      {word.lemma}
+                    </span>
+                  ))}
+                </div>
+              </article>
+            ))
+          )}
+        </div>
+      </section>
+
+      <section className="panel list-panel">
+        <div className="panel-head">
+          <div>
             <p className="eyebrow">Books</p>
             <h2>Library</h2>
           </div>
@@ -662,9 +802,9 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
                     {child.assignments.map((assignment) => (
                       <div key={assignment.id} className="assignment-admin-row">
                         <div>
-                          <p className="assignment-admin-title">{assignment.book?.title || 'Assigned book'}</p>
+                          <p className="assignment-admin-title">{assignment.deck?.title || 'Assigned deck'}</p>
                           <p className="assignment-admin-meta">
-                            Hints {assignment.settings?.hints_enabled ? 'on' : 'off'} • Images {assignment.settings?.images_enabled ? 'on' : 'off'}
+                            {formatDeckType(assignment.deck)} • Hints {assignment.settings?.hints_enabled ? 'on' : 'off'} • Images {assignment.settings?.images_enabled ? 'on' : 'off'}
                           </p>
                         </div>
                         <button
@@ -854,7 +994,7 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
         <div className="panel-head">
           <div>
             <p className="eyebrow">Assignments</p>
-            <h2>Ready Books</h2>
+            <h2>Ready Decks</h2>
           </div>
         </div>
 
@@ -866,8 +1006,8 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
               <article key={assignment.id} className="list-card">
                 <div className="list-card-head">
                   <div>
-                    <h3>{assignment.book.title}</h3>
-                    <p>{assignment.book.author || 'Unknown author'}</p>
+                    <h3>{assignment.deck.title}</h3>
+                    <p>{deckSecondaryText(assignment.deck)}</p>
                   </div>
                   <span className="status-pill status-live">
                     {assignment.progress.mastered_count}/{assignment.progress.total_target_words}
@@ -877,7 +1017,7 @@ function ChildPanel({ childData, sessionState, onStart, onSelectChoice, onShowHi
                   Due now {assignment.progress.due_count} • Learning {assignment.progress.learning_count}
                 </p>
                 <p>
-                  Hints {assignment.settings.hints_enabled ? 'on' : 'off'} • Images {assignment.settings.images_enabled ? 'on' : 'off'}
+                  {formatDeckType(assignment.deck)} • Hints {assignment.settings.hints_enabled ? 'on' : 'off'} • Images {assignment.settings.images_enabled ? 'on' : 'off'}
                 </p>
                 <button
                   type="button"
@@ -900,7 +1040,7 @@ export default function App() {
   const { user } = useUser();
   const api = useMemo(() => createApiClient(getToken), [getToken]);
   const [me, setMe] = useState(null);
-  const [adminData, setAdminData] = useState({ books: [], children: [], importJobs: [] });
+  const [adminData, setAdminData] = useState({ books: [], decks: [], children: [], importJobs: [] });
   const [childData, setChildData] = useState({ assignments: [], profile: null });
   const [sessionState, setSessionState] = useState(null);
   const [notice, setNotice] = useState('');
@@ -912,14 +1052,15 @@ export default function App() {
   const fetchMe = useCallback(() => api.getMe(), [api]);
 
   const fetchAdminData = useCallback(async () => {
-    const [booksData, childrenData] = await Promise.all([
-      api.getAdminBooks(),
+    const [decksData, childrenData] = await Promise.all([
+      api.getAdminDecks(),
       api.getChildren(),
     ]);
     return {
-      books: booksData.books || [],
+      books: decksData.books || [],
+      decks: decksData.decks || [],
       children: childrenData.children || [],
-      importJobs: booksData.import_jobs || [],
+      importJobs: decksData.import_jobs || [],
     };
   }, [api]);
 
@@ -1198,9 +1339,9 @@ export default function App() {
         <div className="auth-shell">
           <section className="hero-panel">
             <p className="eyebrow">vocab</p>
-            <h1>Pre-learn the hard words before the book opens.</h1>
+            <h1>Pre-learn the hard words before the reading starts.</h1>
             <p>
-              Admins import books and publish practice decks. Children log in to work through fast, low-friction meaning checks with light review.
+              Admins import books or build word decks. Children log in to work through fast, low-friction meaning checks with light review.
             </p>
           </section>
 

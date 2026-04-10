@@ -8,7 +8,7 @@ Simple educational websites for kids - each app teaches something new.
 - **count-grouping** - Bundle soccer balls and basketballs into groups of 5 (bags) and 10 (carts) - learn counting by 5s and 10s
 - **quickmath** - Rapid-fire addition and subtraction with timed multiple-choice practice
 - **soccer-spacing** - Practice soccer field spacing and positioning
-- **vocab** - Clerk-authenticated vocabulary prep for books with admin import, child practice, and light spaced repetition
+- **vocab** - Clerk-authenticated vocabulary prep with book-backed decks, pasted word decks, child practice, and light spaced repetition
 
 ## Structure
 
@@ -44,8 +44,9 @@ Server environment:
 - `VOCAB_CHILD_EMAILS`
 - `OPENAI_API_KEY`
 
-Large vocab book imports are queued and processed in the background so OCR-heavy uploads do not hit CDN/proxy request timeouts.
-Vocab books now keep a larger ranked word pool, and child sessions pull from easier or harder parts of that pool as performance changes.
+Large vocab book imports and pasted-word deck builds are queued and processed in the background so heavy jobs do not hit CDN/proxy request timeouts.
+Vocab books become assignable book-backed decks, admins can create custom decks from pasted word lists, and child sessions pull from easier or harder parts of each deck as performance changes.
+Word mastery is tracked per user per word across all decks.
 
 Artifact extraction for vocab books:
 

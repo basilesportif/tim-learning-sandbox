@@ -1,15 +1,18 @@
 # Vocab
 
-Private vocabulary prep for books.
+Private vocabulary prep for books and custom word decks.
 
 ## What It Does
 
 - Admin signs in with Clerk and imports books from pasted text, `.txt`, or page photos
+- Admin can also build custom word decks from a pasted word list
 - OCR page photos are processed in filename order, so names like `001.jpg`, `002.jpg`, `003.jpg` control page order
-- Book imports run as background jobs so large OCR batches do not time out the browser request
-- Each book stores a larger ranked word pool, and child sessions pull easier or harder words from that pool based on performance
+- Book imports and pasted-word deck builds run as background jobs so large jobs do not time out the browser request
+- Imported books become assignable book-backed decks, and custom word lists become assignable word decks
+- Each deck stores a larger ranked word pool, and child sessions pull easier or harder words from that pool based on performance
 - Book source text is stored server-side only for admin use
 - Child users sign in with Clerk and see only their own assignments
+- Word mastery is tracked per user per word across all decks
 - Sessions use multiple-choice meaning checks, optional hints, optional illustrations, and light spaced repetition
 
 ## Required Environment

@@ -40,8 +40,8 @@ export function createApiClient(getToken) {
     getMe() {
       return request('/me', { method: 'GET' }, getToken);
     },
-    getAdminBooks() {
-      return request('/admin/books', { method: 'GET' }, getToken);
+    getAdminDecks() {
+      return request('/admin/decks', { method: 'GET' }, getToken);
     },
     getImportJob(jobId) {
       return request(`/admin/import-jobs/${encodeURIComponent(jobId)}`, { method: 'GET' }, getToken);
@@ -72,6 +72,12 @@ export function createApiClient(getToken) {
       return request(`/admin/books/${encodeURIComponent(bookId)}/publish`, {
         method: 'POST',
         body: JSON.stringify({}),
+      }, getToken);
+    },
+    createDeck(payload) {
+      return request('/admin/decks/import', {
+        method: 'POST',
+        body: JSON.stringify(payload),
       }, getToken);
     },
     getChildren() {
