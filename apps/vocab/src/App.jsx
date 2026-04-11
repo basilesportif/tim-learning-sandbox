@@ -92,6 +92,18 @@ function DeckWordInspector({ deck, expanded, onToggle }) {
   );
 }
 
+function ChildSummaryStats({ child }) {
+  if (!child?.profile) {
+    return null;
+  }
+
+  return (
+    <>
+      Known {child.profile.known_word_ids.length} • Learning {child.profile.learning_word_ids.length} • Struggling {child.profile.struggling_word_ids.length}
+    </>
+  );
+}
+
 function buildDeckGeneratorPrompt({
   topic,
   readingLevel,
@@ -215,6 +227,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   const [deckPromptIncludeExistingWords, setDeckPromptIncludeExistingWords] = useState(true);
   const [deckPromptCopied, setDeckPromptCopied] = useState(false);
   const [expandedDeckId, setExpandedDeckId] = useState('');
+  const [selectedAdminChildId, setSelectedAdminChildId] = useState('');
   const [selectedDeckId, setSelectedDeckId] = useState('');
   const [selectedChildId, setSelectedChildId] = useState('');
   const [selectedProfileChildId, setSelectedProfileChildId] = useState('');
@@ -246,6 +259,17 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
       setSelectedProfileChildId(adminData.children[0].user_id);
     }
   }, [adminData.decks, adminData.children, selectedDeckId, selectedChildId, selectedProfileChildId]);
+
+  useEffect(() => {
+    if (!selectedAdminChildId) {
+      return;
+    }
+
+    const selectedChildExists = adminData.children.some((child) => child.user_id === selectedAdminChildId);
+    if (!selectedChildExists) {
+      setSelectedAdminChildId('');
+    }
+  }, [adminData.children, selectedAdminChildId]);
 
   useEffect(() => {
     const selectedProfileChild = adminData.children.find((child) => child.user_id === selectedProfileChildId)
@@ -422,7 +446,8 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
 
   async function handleAssign(event) {
     event.preventDefault();
-    if (!selectedDeckId || !selectedChildId) {
+    const assignmentChildId = selectedAdminChildId || selectedChildId;
+    if (!selectedDeckId || !assignmentChildId) {
       setError('Choose both a deck and a child profile before assigning.');
       return;
     }
@@ -433,7 +458,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
     try {
       await api.createAssignment({
         deck_id: selectedDeckId,
-        child_user_id: selectedChildId,
+        child_user_id: assignmentChildId,
         settings: {
           hints_enabled: enableHints,
           images_enabled: enableImages,
@@ -499,6 +524,17 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
     }
   }
 
+  function handleOpenChildDetail(child) {
+    setSelectedAdminChildId(child.user_id);
+    setSelectedChildId(child.user_id);
+    setSelectedProfileChildId(child.user_id);
+    setAdaptiveDraft(defaultAdaptiveSettings(child.profile));
+  }
+
+  function handleBackToAdminDashboard() {
+    setSelectedAdminChildId('');
+  }
+
   const publishedDecks = adminData.decks.filter((deck) => deck.status === 'published');
   const allDecks = adminData.decks;
   const customDecks = adminData.decks.filter((deck) => deck.type !== 'book');
@@ -511,6 +547,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   const recentImportJobs = importJobs.slice(0, 8);
   const activeImportJobs = recentImportJobs.filter((job) => job.status === 'queued' || job.status === 'processing');
   const selectedProfileChild = adminData.children.find((child) => child.user_id === selectedProfileChildId) || null;
+  const selectedAdminChild = adminData.children.find((child) => child.user_id === selectedAdminChildId) || null;
   const deckGeneratorPrompt = useMemo(() => buildDeckGeneratorPrompt({
     topic: deckPromptTopic,
     readingLevel: deckPromptReadingLevel,
@@ -557,6 +594,215 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
     );
   }
 
+  if (selectedAdminChild) {
+    return (
+      <div className="workspace-grid admin-workspace child-admin-workspace">
+        <section className="panel admin-wide-panel child-admin-hero">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Child Admin</p>
+              <h2>{selectedAdminChild.display_name}</h2>
+              <p>{selectedAdminChild.email}</p>
+            </div>
+            <button type="button" className="ghost-button" onClick={handleBackToAdminDashboard}>
+              Back To Admin
+            </button>
+          </div>
+          <div className="metric-row">
+            <div className="metric-card">
+              <h3>Known</h3>
+              <p>{selectedAdminChild.profile.known_word_ids.length}</p>
+            </div>
+            <div className="metric-card">
+              <h3>Learning</h3>
+              <p>{selectedAdminChild.profile.learning_word_ids.length}</p>
+            </div>
+            <div className="metric-card">
+              <h3>Struggling</h3>
+              <p>{selectedAdminChild.profile.struggling_word_ids.length}</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel child-admin-decks admin-wide-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Deck Status</p>
+              <h2>Assigned Decks</h2>
+            </div>
+            <span className="panel-chip">{(selectedAdminChild.assignments || []).length} active</span>
+          </div>
+          {(selectedAdminChild.assignments || []).length > 0 ? (
+            <div className="assignment-admin-list">
+              {(selectedAdminChild.assignments || []).map((assignment) => (
+                <div key={assignment.id} className="assignment-admin-row child-admin-assignment-row">
+                  <div>
+                    <p className="assignment-admin-title">{assignment.deck?.title || 'Assigned deck'}</p>
+                    <p className="assignment-admin-meta">
+                      {formatDeckType(assignment.deck)} • Hints {assignment.settings?.hints_enabled ? 'on' : 'off'} • Images {assignment.settings?.images_enabled ? 'on' : 'off'}
+                    </p>
+                    <p className="assignment-admin-meta">{formatAssignmentProgress(assignment.progress)}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="ghost-button assignment-admin-button"
+                    onClick={() => handleToggleAssignmentHints(assignment)}
+                    disabled={updatingAssignmentId === assignment.id}
+                  >
+                    {updatingAssignmentId === assignment.id
+                      ? 'Saving…'
+                      : assignment.settings?.hints_enabled
+                        ? 'Disable Hints'
+                        : 'Enable Hints'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="empty-state">No active decks assigned yet.</p>
+          )}
+        </section>
+
+        <section className="panel assign-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Assign</p>
+              <h2>Add A Deck</h2>
+            </div>
+            <span className="panel-chip">{publishedDecks.length} published decks</span>
+          </div>
+
+          <form className="stack" onSubmit={handleAssign}>
+            <div className="profile-tuning-summary">
+              <p>Assigning to {selectedAdminChild.display_name}</p>
+              <p>{selectedAdminChild.email}</p>
+            </div>
+
+            <label className="field">
+              <span>Deck</span>
+              <select value={selectedDeckId} onChange={(event) => setSelectedDeckId(event.target.value)}>
+                <option value="">Choose a published deck</option>
+                {publishedDecks.map((deck) => (
+                  <option key={deck.id} value={deck.id}>
+                    {deck.title} ({formatDeckType(deck)})
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={enableHints}
+                onChange={(event) => setEnableHints(event.target.checked)}
+              />
+              <span>Allow hints in the child session</span>
+            </label>
+
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={enableImages}
+                onChange={(event) => setEnableImages(event.target.checked)}
+              />
+              <span>Show illustrations when a word has one</span>
+            </label>
+
+            <button type="submit" className="primary-button" disabled={assignBusy}>
+              {assignBusy ? 'Assigning…' : `Assign To ${selectedAdminChild.display_name}`}
+            </button>
+          </form>
+        </section>
+
+        <section className="panel profile-tuning-panel">
+          <div className="panel-head">
+            <div>
+              <p className="eyebrow">Adaptive</p>
+              <h2>Tuning</h2>
+            </div>
+            <span className="panel-chip">{formatBand(adaptiveDraft.target_band)}</span>
+          </div>
+
+          <form className="stack" onSubmit={handleSaveAdaptiveSettings}>
+            <label className="field">
+              <span>Target Band</span>
+              <select
+                value={adaptiveDraft.target_band}
+                onChange={(event) => setAdaptiveDraft((current) => ({
+                  ...current,
+                  target_band: event.target.value,
+                }))}
+              >
+                <option value="1">Band 1 — Easiest</option>
+                <option value="2">Band 2</option>
+                <option value="3">Band 3</option>
+                <option value="4">Band 4</option>
+                <option value="5">Band 5</option>
+                <option value="6">Band 6 — Hardest</option>
+              </select>
+            </label>
+
+            <div className="field-grid">
+              <label className="field">
+                <span>Rolling Window</span>
+                <input
+                  type="number"
+                  min="3"
+                  max="20"
+                  value={adaptiveDraft.rolling_band_window}
+                  onChange={(event) => setAdaptiveDraft((current) => ({
+                    ...current,
+                    rolling_band_window: event.target.value,
+                  }))}
+                />
+              </label>
+
+              <label className="field">
+                <span>Judge After</span>
+                <input
+                  type="number"
+                  min="2"
+                  max="20"
+                  value={adaptiveDraft.band_adjustment_min_answers}
+                  onChange={(event) => setAdaptiveDraft((current) => ({
+                    ...current,
+                    band_adjustment_min_answers: event.target.value,
+                  }))}
+                />
+              </label>
+
+              <label className="field">
+                <span>Recheck Every</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={adaptiveDraft.band_adjustment_step}
+                  onChange={(event) => setAdaptiveDraft((current) => ({
+                    ...current,
+                    band_adjustment_step: event.target.value,
+                  }))}
+                />
+              </label>
+            </div>
+
+            <p className="form-note">
+              This tunes how quickly this child can move between bands as answers come in.
+            </p>
+
+            <button
+              type="submit"
+              className="primary-button"
+              disabled={savingProfileChildId === selectedAdminChild.user_id}
+            >
+              {savingProfileChildId === selectedAdminChild.user_id ? 'Saving…' : 'Save Child Tuning'}
+            </button>
+          </form>
+        </section>
+      </div>
+    );
+  }
+
   return (
     <div className="workspace-grid admin-workspace">
       {activeImportJobs.length > 0 ? (
@@ -597,6 +843,43 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
             <p className="empty-state">No decks yet. Add a book or build a word deck to get started.</p>
           ) : (
             allDecks.map((deck) => renderDeckCard(deck))
+          )}
+        </div>
+      </section>
+
+      <section className="panel list-panel admin-wide-panel child-list-panel">
+        <div className="panel-head">
+          <div>
+            <p className="eyebrow">Children</p>
+            <h2>Child Admin</h2>
+            <p>Open a child to inspect decks, progress, and controls.</p>
+          </div>
+          <span className="panel-chip">{adminData.children.length} children</span>
+        </div>
+
+        <div className="child-admin-list">
+          {adminData.children.length === 0 ? (
+            <p className="empty-state">No child users found in Clerk yet.</p>
+          ) : (
+            adminData.children.map((child) => (
+              <button
+                key={child.user_id}
+                type="button"
+                className="child-admin-row"
+                onClick={() => handleOpenChildDetail(child)}
+                aria-label={`Open admin page for ${child.display_name}`}
+              >
+                <span>
+                  <span className="child-admin-name">{child.display_name}</span>
+                  <span className="child-admin-meta">{child.email}</span>
+                </span>
+                <span className="child-admin-pill">{formatBand(child.profile.target_band)}</span>
+                <span className="child-admin-meta">Active decks: {(child.assignments || []).length}</span>
+                <span className="child-admin-meta">
+                  <ChildSummaryStats child={child} />
+                </span>
+              </button>
+            ))
           )}
         </div>
       </section>
@@ -817,7 +1100,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
       <details className="panel advanced-admin-panel admin-wide-panel">
         <summary>
           <span>Advanced Admin</span>
-          <small>Assignments, child tuning, and job history</small>
+          <small>Assignments, tuning, and job history</small>
         </summary>
 
         <div className="advanced-admin-grid">
@@ -1033,70 +1316,6 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
         </div>
       </section>
 
-      <section className="panel list-panel">
-        <div className="panel-head">
-          <div>
-            <p className="eyebrow">Children</p>
-            <h2>Profiles</h2>
-          </div>
-        </div>
-
-        <div className="card-list">
-          {adminData.children.length === 0 ? (
-            <p className="empty-state">No child users found in Clerk yet.</p>
-          ) : (
-            adminData.children.map((child) => (
-              <article key={child.user_id} className="list-card">
-                <div className="list-card-head">
-                  <div>
-                    <h3>{child.display_name}</h3>
-                    <p>{child.email}</p>
-                  </div>
-                  <span className="status-pill status-live">{formatBand(child.profile.target_band)}</span>
-                </div>
-                <p>
-                  Known {child.profile.known_word_ids.length} • Learning {child.profile.learning_word_ids.length} • Struggling {child.profile.struggling_word_ids.length}
-                </p>
-                <p>
-                  Window {child.profile.adaptive_settings?.rolling_band_window || 8} • Judge after {child.profile.adaptive_settings?.band_adjustment_min_answers || 3} • Recheck every {child.profile.adaptive_settings?.band_adjustment_step || 2}
-                </p>
-                <p>
-                  Active assignments: {child.assignments.length}
-                </p>
-                {child.assignments.length > 0 ? (
-                  <div className="assignment-admin-list">
-                    {child.assignments.map((assignment) => (
-                      <div key={assignment.id} className="assignment-admin-row">
-                        <div>
-                          <p className="assignment-admin-title">{assignment.deck?.title || 'Assigned deck'}</p>
-                          <p className="assignment-admin-meta">
-                            {formatDeckType(assignment.deck)} • Hints {assignment.settings?.hints_enabled ? 'on' : 'off'} • Images {assignment.settings?.images_enabled ? 'on' : 'off'}
-                          </p>
-                          <p className="assignment-admin-meta">
-                            {formatAssignmentProgress(assignment.progress)}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          className="ghost-button assignment-admin-button"
-                          onClick={() => handleToggleAssignmentHints(assignment)}
-                          disabled={updatingAssignmentId === assignment.id}
-                        >
-                          {updatingAssignmentId === assignment.id
-                            ? 'Saving…'
-                            : assignment.settings?.hints_enabled
-                              ? 'Disable Hints'
-                              : 'Enable Hints'}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-              </article>
-            ))
-          )}
-        </div>
-      </section>
         </div>
       </details>
     </div>

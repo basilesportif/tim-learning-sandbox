@@ -7,7 +7,7 @@ Private vocabulary prep for books and custom word decks.
 - Admin signs in with Clerk and imports books from pasted text, `.txt`, or page photos
 - Admin can also build custom word decks from a pasted word list
 - Admin can append more pasted words to existing custom word decks
-- Admin sees a consolidated deck library first, with assignment, tuning, and job history tools collapsed under Advanced Admin
+- Admin sees a consolidated deck library and simple child list first, with assignment, tuning, and job history tools collapsed under Advanced Admin
 - Pasted word decks can include manual definitions and wrong answer choices per row
 - The deck builder UI includes a customizable copyable prompt for another AI, with free-form topic and reading-level text, word count, and optional existing deck words to avoid
 - OCR page photos are processed in filename order, so names like `001.jpg`, `002.jpg`, `003.jpg` control page order
@@ -17,7 +17,7 @@ Private vocabulary prep for books and custom word decks.
 - Admin can expand deck cards to inspect every saved word, definition, and wrong-choice set
 - Book source text is stored server-side only for admin use
 - Child users sign in with Clerk and see only their own assignments
-- Admin can inspect each child’s assigned decks with per-deck word status counts
+- Admin can click into each child’s admin page to inspect assigned decks with per-deck word status counts
 - Word mastery is tracked per user per word across all decks
 - Sessions use multiple-choice meaning checks, optional hints, optional illustrations, and light spaced repetition
 
