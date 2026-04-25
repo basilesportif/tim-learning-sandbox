@@ -31,6 +31,12 @@ function formatDeckType(deck) {
   return deck?.type === 'book' ? 'Book deck' : 'Word deck';
 }
 
+function getDeckWordIds(deck) {
+  return (Array.isArray(deck?.word_pool) ? deck.word_pool : [])
+    .map((entry) => entry.word_id)
+    .filter(Boolean);
+}
+
 function deckSecondaryText(deck) {
   if (!deck) {
     return '';
@@ -539,6 +545,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
   const allDecks = adminData.decks;
   const customDecks = adminData.decks.filter((deck) => deck.type !== 'book');
   const selectedAppendDeck = customDecks.find((deck) => deck.id === deckTargetId) || null;
+  const selectedAppendDeckWordIds = selectedAppendDeck ? getDeckWordIds(selectedAppendDeck) : [];
   const existingPromptWords = useMemo(() => (
     deckPromptIncludeExistingWords && selectedAppendDeck
       ? (selectedAppendDeck.words || []).map((word) => word.lemma)
@@ -557,6 +564,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
 
   function renderDeckCard(deck) {
     const words = Array.isArray(deck.words) ? deck.words : [];
+    const wordIds = getDeckWordIds(deck);
 
     return (
       <article key={deck.id} className="list-card">
@@ -568,7 +576,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
           <span className={`status-pill status-${deck.status}`}>{deck.status}</span>
         </div>
         <p>
-          {deck.word_ids.length} words • {formatDeckType(deck)}
+          {wordIds.length} words • {formatDeckType(deck)}
           {deck.type === 'book' && deck.word_count ? ` • ${deck.word_count} words in source` : ''}
         </p>
         <div className="token-row">
@@ -971,7 +979,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
               <option value="">Create a new word deck</option>
               {customDecks.map((deck) => (
                 <option key={deck.id} value={deck.id}>
-                  Add to {deck.title} ({deck.word_ids.length} words)
+                  Add to {deck.title} ({getDeckWordIds(deck).length} words)
                 </option>
               ))}
             </select>
@@ -980,7 +988,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
           {selectedAppendDeck ? (
             <div className="profile-tuning-summary">
               <p>Adding words to {selectedAppendDeck.title}.</p>
-              <p>{selectedAppendDeck.word_ids.length} existing words. New assignments will use the updated deck automatically.</p>
+              <p>{selectedAppendDeckWordIds.length} existing words. New assignments will use the updated deck automatically.</p>
             </div>
           ) : (
             <>
@@ -1046,7 +1054,7 @@ function AdminPanel({ api, adminData, onReload, setNotice, setError }) {
               />
               <span>
                 {selectedAppendDeck
-                  ? `Include ${selectedAppendDeck.word_ids.length} current deck words in the prompt so the AI avoids repeats`
+                  ? `Include ${selectedAppendDeckWordIds.length} current deck words in the prompt so the AI avoids repeats`
                   : 'Choose an existing deck above to include its current words in the prompt'}
               </span>
             </label>

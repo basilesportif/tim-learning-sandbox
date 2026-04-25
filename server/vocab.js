@@ -116,6 +116,77 @@ function writeJson(filePath, value) {
   fs.writeFileSync(filePath, JSON.stringify(value, null, 2));
 }
 
+function getSessionCompletedWordIds(session) {
+  if (session?.completed_word_ids instanceof Set) {
+    return session.completed_word_ids;
+  }
+  return new Set(Array.isArray(session?.completed_word_ids) ? session.completed_word_ids : []);
+}
+
+function serializeActiveSession(session) {
+  const completedWordIds = getSessionCompletedWordIds(session);
+
+  return {
+    ...session,
+    candidate_word_ids: unique(Array.isArray(session?.candidate_word_ids) ? session.candidate_word_ids : []),
+    frozen_word_ids: unique(Array.isArray(session?.frozen_word_ids) ? session.frozen_word_ids : []),
+    cards: Array.isArray(session?.cards) ? session.cards : [],
+    answers: Array.isArray(session?.answers) ? session.answers : [],
+    completed_word_ids: [...completedWordIds],
+  };
+}
+
+function normalizeActiveSession(session, fallbackId = '') {
+  if (!session || typeof session !== 'object') {
+    return null;
+  }
+
+  const id = String(session.id || fallbackId || '').trim();
+  if (!id) {
+    return null;
+  }
+
+  return {
+    ...session,
+    id,
+    candidate_word_ids: unique(Array.isArray(session.candidate_word_ids) ? session.candidate_word_ids : []),
+    frozen_word_ids: unique(Array.isArray(session.frozen_word_ids) ? session.frozen_word_ids : []),
+    cards: Array.isArray(session.cards) ? session.cards : [],
+    answers: Array.isArray(session.answers) ? session.answers : [],
+    completed_word_ids: getSessionCompletedWordIds(session),
+  };
+}
+
+function persistActiveSessions(activeSessionsPath) {
+  writeJson(activeSessionsPath, [...activeSessions.entries()].map(([id, session]) => [
+    id,
+    serializeActiveSession(session),
+  ]));
+}
+
+function restoreActiveSessions(activeSessionsPath) {
+  if (!fs.existsSync(activeSessionsPath)) {
+    return;
+  }
+
+  const entries = readJson(activeSessionsPath, []);
+  if (!Array.isArray(entries)) {
+    return;
+  }
+
+  activeSessions.clear();
+  for (const entry of entries) {
+    if (!Array.isArray(entry) || entry.length < 2) {
+      continue;
+    }
+    const [id, session] = entry;
+    const normalizedSession = normalizeActiveSession(session, id);
+    if (normalizedSession) {
+      activeSessions.set(normalizedSession.id, normalizedSession);
+    }
+  }
+}
+
 function sanitizeText(input) {
   return String(input || '')
     .replace(/\r\n/g, '\n')
@@ -719,11 +790,7 @@ function getUploadedFiles(req, fieldName) {
 }
 
 function getSourceWordPool(source) {
-  const pool = Array.isArray(source?.word_pool) && source.word_pool.length > 0
-    ? source.word_pool
-    : (Array.isArray(source?.word_pool_ids) && source.word_pool_ids.length > 0
-        ? source.word_pool_ids.map((wordId, index) => ({ word_id: wordId, rank: index + 1 }))
-        : (Array.isArray(source?.word_ids) ? source.word_ids : []).map((wordId, index) => ({ word_id: wordId, rank: index + 1 })));
+  const pool = Array.isArray(source?.word_pool) ? source.word_pool : [];
 
   return pool
     .filter((entry) => entry?.word_id)
@@ -1419,7 +1486,7 @@ function pickReviewWords(profile, candidateEntries, limit) {
       ...entry,
       progress: profile.word_progress?.[entry.word.id],
     }))
-    .filter((entry) => entry.word && isWordDue(entry.progress, now))
+    .filter((entry) => entry.word && entry.word.needs_review !== true && isWordDue(entry.progress, now))
     .sort((a, b) => {
       const dueDelta = (getWordReadyAt(a.progress) || 0) - (getWordReadyAt(b.progress) || 0);
       if (dueDelta !== 0) {
@@ -1434,7 +1501,7 @@ function pickNewWords(profile, candidateEntries, limit) {
   const targetBand = Number(profile.target_band) || 2;
 
   const candidates = candidateEntries
-    .filter((entry) => entry.word)
+    .filter((entry) => entry.word && entry.word.needs_review !== true)
     .filter((entry) => {
       const progress = profile.word_progress?.[entry.word.id];
       return !progress || progress.state !== 'mastered';
@@ -1488,18 +1555,16 @@ function buildCard(entry, assignment, imageUrl) {
   };
 }
 
-function rebuildSessionCards(session, assignment, deck, profile, wordCatalogById) {
-  session.completed_word_ids = session.completed_word_ids instanceof Set
-    ? session.completed_word_ids
-    : new Set(Array.isArray(session.completed_word_ids) ? session.completed_word_ids : []);
+function selectSessionWordIds(session, assignment, deck, profile, wordCatalogById) {
   session.candidate_word_ids = unique(
     Array.isArray(session.candidate_word_ids) && session.candidate_word_ids.length > 0
       ? session.candidate_word_ids
       : getAssignmentWordIds(assignment, deck)
   );
 
+  const completedWordIds = getSessionCompletedWordIds(session);
   const remainingEntries = getWordEntriesForIds(
-    session.candidate_word_ids.filter((wordId) => !session.completed_word_ids.has(wordId)),
+    session.candidate_word_ids.filter((wordId) => !completedWordIds.has(wordId)),
     deck,
     wordCatalogById
   );
@@ -1514,17 +1579,43 @@ function rebuildSessionCards(session, assignment, deck, profile, wordCatalogById
     remainingEntries.filter((entry) => !reviewWordIds.has(entry.word?.id)),
     Number(assignment.settings?.max_new_words) || DEFAULT_MAX_NEW_WORDS
   );
-  const selectedEntries = [];
-  const selectedWordIds = new Set();
+  const selectedWordIds = [];
+  const seenWordIds = new Set();
 
   for (const entry of [...reviewEntries, ...newEntries]) {
     const wordId = entry.word?.id;
-    if (!wordId || selectedWordIds.has(wordId)) {
+    if (!wordId || seenWordIds.has(wordId)) {
       continue;
     }
-    selectedWordIds.add(wordId);
-    selectedEntries.push(entry);
+    seenWordIds.add(wordId);
+    selectedWordIds.push(wordId);
   }
+
+  return selectedWordIds;
+}
+
+function rebuildSessionCards(session, assignment, deck, wordCatalogById) {
+  session.completed_word_ids = getSessionCompletedWordIds(session);
+  session.candidate_word_ids = unique(
+    Array.isArray(session.candidate_word_ids) && session.candidate_word_ids.length > 0
+      ? session.candidate_word_ids
+      : getAssignmentWordIds(assignment, deck)
+  );
+  session.frozen_word_ids = unique(
+    Array.isArray(session.frozen_word_ids) && session.frozen_word_ids.length > 0
+      ? session.frozen_word_ids
+      : (Array.isArray(session.cards) ? session.cards.map((card) => card.word_id).filter(Boolean) : [])
+  );
+
+  const remainingWordIds = session.frozen_word_ids.filter((wordId) => !session.completed_word_ids.has(wordId));
+  const remainingEntriesByWordId = new Map(getWordEntriesForIds(
+    remainingWordIds,
+    deck,
+    wordCatalogById
+  ).map((entry) => [entry.word.id, entry]));
+  const selectedEntries = remainingWordIds
+    .map((wordId) => remainingEntriesByWordId.get(wordId))
+    .filter(Boolean);
 
   session.cards = selectedEntries.map((entry) => buildCard(
     entry,
@@ -1633,7 +1724,7 @@ function updateWordProgress(existing, wordSummary) {
     next.due_at = new Date(Date.now() + (ASSISTED_REVIEW_HOURS * 60 * 60 * 1000)).toISOString();
   } else {
     next.state = 'learning';
-    next.stage_index = Math.max((current.stage_index ?? 0) - 1, 0);
+    next.stage_index = 0;
     next.due_at = new Date(Date.now() + (WRONG_RETRY_MINUTES * 60 * 1000)).toISOString();
   }
 
@@ -1691,8 +1782,6 @@ function normalizeBookRecord(book) {
     ...book,
     page_images: Array.isArray(book.page_images) ? book.page_images : [],
     artifacts: Array.isArray(book.artifacts) ? book.artifacts : [],
-    word_ids: getBookWordIds(book),
-    word_pool_ids: getBookWordIds(book),
     word_pool: getBookWordPool(book),
     settings: {
       ...(book.settings || {}),
@@ -1712,8 +1801,6 @@ function normalizeDeckRecord(deck) {
     status: deck.status === 'draft' ? 'draft' : 'published',
     language: String(deck.language || 'en').trim().toLowerCase() || 'en',
     description: String(deck.description || '').trim(),
-    word_ids: getDeckWordIds(deck),
-    word_pool_ids: getDeckWordIds(deck),
     word_pool: getDeckWordPool(deck),
     settings: {
       ...(deck.settings || {}),
@@ -1737,8 +1824,6 @@ function buildBookDeckRecord(book) {
     language: normalizedBook.language,
     status: normalizedBook.status,
     description: '',
-    word_ids: normalizedBook.word_ids,
-    word_pool_ids: normalizedBook.word_pool_ids,
     word_pool: normalizedBook.word_pool,
     word_count: normalizedBook.word_count,
     page_images: normalizedBook.page_images,
@@ -1840,6 +1925,7 @@ function resolveVocabStorage(dataPath) {
   const profilesPath = join(dataPath, 'profiles.json');
   const assignmentsPath = join(dataPath, 'assignments.json');
   const sessionsPath = join(dataPath, 'sessions.json');
+  const activeSessionsPath = join(dataPath, 'sessions_active.json');
   const importJobsPath = join(dataPath, 'import_jobs.json');
 
   return {
@@ -1853,6 +1939,7 @@ function resolveVocabStorage(dataPath) {
       profilesPath,
       assignmentsPath,
       sessionsPath,
+      activeSessionsPath,
     },
   };
 }
@@ -1903,8 +1990,6 @@ export async function reprocessVocabBookPools({
       imagesDir: storage.imagesDir,
     });
 
-    book.word_ids = wordIds;
-    book.word_pool_ids = wordIds;
     book.word_pool = wordPool;
     book.settings = {
       ...(book.settings || {}),
@@ -1930,6 +2015,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
 
   const storage = resolveVocabStorage(dataPath);
   ensureVocabStorage(storage);
+  restoreActiveSessions(storage.paths.activeSessionsPath);
   const {
     booksDir,
     imagesDir,
@@ -2058,8 +2144,6 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
         language,
         status: 'draft',
         text_path: join(booksDir, sourceFileName),
-        word_ids: wordIds,
-        word_pool_ids: wordIds,
         word_pool: wordPool,
         word_count: combinedText.split(/\s+/).filter(Boolean).length,
         page_images: pageImages,
@@ -2171,8 +2255,6 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
         description,
         language,
         status: 'published',
-        word_ids: wordIds,
-        word_pool_ids: wordIds,
         word_pool: wordPool,
         word_count: wordIds.length,
         created_by: createdBy,
@@ -2274,8 +2356,6 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       const mergedWordIds = mergedWordPool.map((entry) => entry.word_id);
       const duplicateCount = Math.max(0, wordIds.length - addedWordIds.length);
 
-      deck.word_ids = mergedWordIds;
-      deck.word_pool_ids = mergedWordIds;
       deck.word_pool = mergedWordPool;
       deck.word_count = mergedWordIds.length;
       deck.updated_at = nowIso();
@@ -2392,8 +2472,6 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     return {
       ...deck,
       ...summarizeDeck(deck),
-      word_ids: wordIds,
-      word_pool_ids: wordIds,
       words: wordIds.map((wordId) => wordCatalogById[wordId]).filter(Boolean),
       page_images: Array.isArray(deck.page_images) ? deck.page_images : [],
       artifacts: (Array.isArray(deck.artifacts) ? deck.artifacts : []).map((artifact) => ({
@@ -2862,8 +2940,9 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
         activeSessions.delete(staleSession.id);
       }
 
-      rebuildSessionCards(activeSession, assignment, deck, profile, wordCatalogById);
+      rebuildSessionCards(activeSession, assignment, deck, wordCatalogById);
       if (activeSession.cards.length > 0) {
+        persistActiveSessions(paths.activeSessionsPath);
         res.json({
           session: buildSessionPayload(activeSession, assignment),
         });
@@ -2871,6 +2950,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       }
 
       activeSessions.delete(activeSession.id);
+      persistActiveSessions(paths.activeSessionsPath);
     }
 
     const sessionId = `session_${crypto.randomUUID()}`;
@@ -2883,11 +2963,13 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
       started_at: nowIso(),
       updated_at: nowIso(),
       candidate_word_ids: getAssignmentWordIds(assignment, deck),
+      frozen_word_ids: [],
       cards: [],
       answers: [],
       completed_word_ids: new Set(),
     };
-    rebuildSessionCards(session, assignment, deck, profile, wordCatalogById);
+    session.frozen_word_ids = selectSessionWordIds(session, assignment, deck, profile, wordCatalogById);
+    rebuildSessionCards(session, assignment, deck, wordCatalogById);
 
     if (session.cards.length === 0) {
       res.status(409).json({ error: 'no_words_ready' });
@@ -2895,6 +2977,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     }
 
     activeSessions.set(sessionId, session);
+    persistActiveSessions(paths.activeSessionsPath);
 
     res.json({
       session: buildSessionPayload(session, assignment),
@@ -2962,10 +3045,11 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     const wordCatalogById = makeWordCatalogIndex(store.wordCatalog);
 
     if (assignment && deck) {
-      rebuildSessionCards(session, assignment, deck, profile, wordCatalogById);
+      rebuildSessionCards(session, assignment, deck, wordCatalogById);
     } else {
       session.cards = getRemainingSessionCards(session);
     }
+    persistActiveSessions(paths.activeSessionsPath);
 
     res.json({
       answer: event,
@@ -3020,6 +3104,7 @@ export function setupVocabApiRoutes(app, appName, dataPath) {
     store.sessions.unshift(sessionSummary);
     writeStore(paths, store);
     activeSessions.delete(session.id);
+    persistActiveSessions(paths.activeSessionsPath);
 
     res.json({
       session: sessionSummary,
