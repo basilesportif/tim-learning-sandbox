@@ -1,0 +1,9 @@
+{
+  "name": "repo-registry-local-codex",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {
+    "@openai/codex-sdk": "^0.124.0"
+  }
+}
