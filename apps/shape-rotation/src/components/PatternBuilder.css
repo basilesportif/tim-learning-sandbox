@@ -26,7 +26,7 @@
 }
 
 /* The snapshots wrap into tidy rows, left to right, like reading a sentence.
-   Row one is the dashed "Start" card plus the first taps. */
+   Row one is the "Start" card plus the first taps. */
 .pattern-strip {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -50,18 +50,22 @@
 
 .snapshot-card-cw {
   box-shadow: 0 3px 10px rgba(139, 92, 246, 0.3);
-  animation: snapshot-pop 260ms ease-out both;
 }
 
 .snapshot-card-ccw {
   box-shadow: 0 3px 10px rgba(14, 165, 233, 0.3);
+}
+
+/* Only the card that was just tapped pops in. Switching tabs remounts the
+   builder, and without this the whole strip would replay the animation. */
+.snapshot-card-fresh {
   animation: snapshot-pop 260ms ease-out both;
 }
 
-.snapshot-card-ghost {
-  background: transparent;
-  border: 2px dashed var(--card-border);
-  box-shadow: none;
+/* Same card as any snapshot - it holds a real triangle - just outlined in a
+   neutral grey so it does not read as a clockwise or counterclockwise turn. */
+.snapshot-card-start {
+  border-color: var(--card-border);
 }
 
 @keyframes snapshot-pop {
@@ -95,14 +99,6 @@
   overflow: visible;
 }
 
-.snapshot-ghost-shape {
-  fill: none;
-  stroke: var(--guide-line);
-  stroke-width: 6;
-  stroke-dasharray: 12 10;
-  stroke-linejoin: round;
-}
-
 .snapshot-caption {
   display: flex;
   align-items: baseline;
@@ -124,7 +120,7 @@
   color: var(--ccw-hover);
 }
 
-.snapshot-caption-ghost {
+.snapshot-caption-start {
   color: var(--text-light);
   font-weight: 700;
 }
@@ -203,8 +199,17 @@
     gap: 14px;
   }
 
+  /* The figures are square, so card HEIGHT tracks column WIDTH. With plain 1fr
+     columns a short, wide viewport (1024x768, 900x600) makes the cards taller
+     than the strip's vertical budget and the newest row gets clipped. So the
+     columns are capped: never wider than 110px, and never wider than half of
+     the space actually left for the two rows. The measured budget for the
+     strip area at this breakpoint is about (viewport height - 434px); take off
+     the 14px row gap, the ~22px of caption/padding under each figure and a
+     little slack, and the height-driven cap is (100dvh - 508px) / 2. */
   .pattern-strip {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(6, minmax(0, clamp(48px, (100dvh - 508px) / 2, 110px)));
+    justify-content: center;
     gap: 14px;
     max-width: 820px;
   }
@@ -240,6 +245,65 @@
 @media (min-width: 1000px) {
   .pattern-strip {
     max-width: 980px;
+  }
+}
+
+/* Wide but short - laptops and tablets around 900x600, where the tablet sizes
+   above would leave the strip with only ~160px of height. Trim the padding the
+   pattern mode controls (never the free rotate ones) and the card chrome, then
+   re-derive the height-driven column cap from the roomier budget. */
+@media (min-width: 700px) and (max-height: 700px) {
+  .pattern-builder {
+    gap: 10px;
+  }
+
+  .pattern-strip-area {
+    gap: 8px;
+  }
+
+  .pattern-strip {
+    grid-template-columns: repeat(6, minmax(0, clamp(48px, (100dvh - 430px) / 2, 110px)));
+    gap: 8px;
+  }
+
+  .snapshot-card {
+    padding: 4px 3px 3px;
+    border-radius: 12px;
+  }
+
+  .snapshot-caption {
+    font-size: 0.78rem;
+  }
+
+  .snapshot-arrow {
+    font-size: 0.85rem;
+  }
+
+  .pattern-controls-area {
+    gap: 8px;
+  }
+
+  .pattern-controls-area .rotation-controls,
+  .pattern-controls-area .turn-buttons {
+    gap: 10px;
+  }
+
+  .pattern-controls-area .turn-button {
+    min-height: 76px;
+  }
+
+  .pattern-controls-area .turn-arrow {
+    font-size: 2rem;
+  }
+
+  .pattern-controls-area .reset-button {
+    min-height: 44px;
+    padding: 10px 22px;
+    font-size: 0.9rem;
+  }
+
+  .pattern-status {
+    font-size: 0.85rem;
   }
 }
 
@@ -291,8 +355,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .snapshot-card-cw,
-  .snapshot-card-ccw {
+  .snapshot-card-fresh {
     animation: none;
   }
 }

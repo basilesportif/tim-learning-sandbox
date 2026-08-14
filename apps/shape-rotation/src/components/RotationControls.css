@@ -42,20 +42,21 @@
   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
 }
 
-.turn-ccw:hover:not(:disabled) {
+.turn-ccw:hover:not([aria-disabled="true"]) {
   background: var(--ccw-hover);
 }
 
-.turn-cw:hover:not(:disabled) {
+.turn-cw:hover:not([aria-disabled="true"]) {
   background: var(--cw-hover);
 }
 
-.turn-button:active:not(:disabled) {
+.turn-button:active:not([aria-disabled="true"]) {
   transform: scale(0.96);
 }
 
-/* Used by Pattern Builder once the strip is full. */
-.turn-button:disabled {
+/* Used by Pattern Builder once the strip is full. The button stays focusable
+   (see RotationControls.jsx), so it is dimmed via aria-disabled, not :disabled. */
+.turn-button[aria-disabled="true"] {
   opacity: 0.45;
   box-shadow: none;
   cursor: default;

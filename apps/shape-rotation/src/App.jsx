@@ -4,6 +4,7 @@ import RotationControls from './components/RotationControls';
 import AngleReadout from './components/AngleReadout';
 import ModeTabs from './components/ModeTabs';
 import PatternBuilder from './components/PatternBuilder';
+import { tabDomId, panelDomId } from './lib/modes';
 import './App.css';
 
 // Fixed rotation step, in degrees.
@@ -91,8 +92,14 @@ function App() {
 
       <ModeTabs mode={mode} onModeChange={setMode} />
 
+      {/* Only the selected mode is rendered; it is the tabpanel for its tab. */}
       {mode === 'free' ? (
-        <main className="app-main">
+        <main
+          className="app-main"
+          id={panelDomId('free')}
+          role="tabpanel"
+          aria-labelledby={tabDomId('free')}
+        >
           <div className="stage-area">
             <ShapeStage angle={angle} displayAngle={displayAngle} />
           </div>
@@ -109,7 +116,12 @@ function App() {
           </div>
         </main>
       ) : (
-        <main className="app-main pattern-main">
+        <main
+          className="app-main pattern-main"
+          id={panelDomId('pattern')}
+          role="tabpanel"
+          aria-labelledby={tabDomId('pattern')}
+        >
           <PatternBuilder
             stepDegrees={STEP_DEGREES}
             snapshots={snapshots}
