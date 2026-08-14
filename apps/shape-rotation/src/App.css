@@ -40,6 +40,14 @@
   min-height: 0;
 }
 
+/* Pattern Builder stacks strip over buttons at every size; the row layout
+   below is only meant for the free rotate stage. */
+.pattern-main {
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 10px;
+}
+
 .stage-area {
   display: flex;
   justify-content: center;
@@ -114,6 +122,12 @@
     padding: 8px;
   }
 
+  .pattern-main {
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 16px;
+  }
+
   .stage-area {
     flex: 0 0 auto;
   }
@@ -158,6 +172,12 @@
     align-items: center;
     gap: 16px;
     padding: 0;
+  }
+
+  .pattern-main {
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 6px;
   }
 
   .stage-area {

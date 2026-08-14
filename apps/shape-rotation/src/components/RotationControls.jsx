@@ -5,6 +5,7 @@ const RotationControls = ({
   onCounterClockwise,
   onClockwise,
   onReset,
+  canTurn = true,
   canReset = true,
 }) => {
   return (
@@ -14,6 +15,7 @@ const RotationControls = ({
           type="button"
           className="turn-button turn-ccw"
           onClick={onCounterClockwise}
+          disabled={!canTurn}
           aria-label={`Turn counterclockwise ${stepDegrees} degrees`}
         >
           <span className="turn-arrow" aria-hidden="true">↺</span>
@@ -27,6 +29,7 @@ const RotationControls = ({
           type="button"
           className="turn-button turn-cw"
           onClick={onClockwise}
+          disabled={!canTurn}
           aria-label={`Turn clockwise ${stepDegrees} degrees`}
         >
           <span className="turn-arrow" aria-hidden="true">↻</span>

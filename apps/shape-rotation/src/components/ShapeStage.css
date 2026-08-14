@@ -52,36 +52,12 @@
   fill: var(--guide-strong);
 }
 
-/* --- Rotating shape --- */
+/* --- Rotating shape (the triangle itself lives in TriangleGlyph.css) --- */
 
 .shape-rotor {
   transform-origin: 50% 50%;
   transition: transform 300ms ease;
   will-change: transform;
-}
-
-.shape-body {
-  fill: var(--shape-fill);
-  stroke: var(--shape-stroke);
-  stroke-width: 7;
-  stroke-linejoin: round;
-}
-
-.shape-eye {
-  fill: var(--shape-face);
-}
-
-.shape-smile {
-  fill: none;
-  stroke: var(--shape-face);
-  stroke-width: 6;
-  stroke-linecap: round;
-}
-
-.shape-nose {
-  fill: var(--shape-marker);
-  stroke: var(--shape-surface);
-  stroke-width: 4;
 }
 
 @media (prefers-reduced-motion: reduce) {

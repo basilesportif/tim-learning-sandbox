@@ -42,16 +42,23 @@
   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
 }
 
-.turn-ccw:hover {
+.turn-ccw:hover:not(:disabled) {
   background: var(--ccw-hover);
 }
 
-.turn-cw:hover {
+.turn-cw:hover:not(:disabled) {
   background: var(--cw-hover);
 }
 
-.turn-button:active {
+.turn-button:active:not(:disabled) {
   transform: scale(0.96);
+}
+
+/* Used by Pattern Builder once the strip is full. */
+.turn-button:disabled {
+  opacity: 0.45;
+  box-shadow: none;
+  cursor: default;
 }
 
 .turn-arrow {
