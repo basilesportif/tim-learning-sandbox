@@ -1,0 +1,110 @@
+/* Colorful Kid-Friendly Theme for Shape Rotation App
+   (same palette family as the clocks app) */
+
+:root {
+  /* Background colors */
+  --bg-primary: #e0f2fe;
+  --bg-secondary: #f0f9ff;
+  --bg-gradient-start: #bfdbfe;
+  --bg-gradient-end: #e0f2fe;
+
+  /* Shape colors */
+  --shape-surface: #ffffff;
+  --shape-fill: #ede9fe;
+  --shape-stroke: #7c3aed;
+  --shape-marker: #ef4444;
+  --shape-face: #1e293b;
+
+  /* Guides */
+  --guide-line: #cbd5e1;
+  --guide-strong: #94a3b8;
+  --guide-ghost: #dbeafe;
+
+  /* Interactive elements */
+  --button-primary: #8b5cf6;
+  --button-hover: #7c3aed;
+  --button-selected: #6d28d9;
+  --button-text: #ffffff;
+
+  /* Direction accents */
+  --ccw-color: #0ea5e9;
+  --ccw-hover: #0284c7;
+  --cw-color: #8b5cf6;
+  --cw-hover: #7c3aed;
+
+  /* Cards */
+  --card-bg: rgba(255, 255, 255, 0.8);
+  --card-border: #e2e8f0;
+
+  /* Text */
+  --text-primary: #1e293b;
+  --text-secondary: #475569;
+  --text-light: #94a3b8;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+  color: var(--text-primary);
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+#root {
+  height: 100%;
+  width: 100%;
+}
+
+button {
+  font: inherit;
+}
+
+/* Prevent text selection during interactions */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Touch-friendly tap highlight removal */
+button, a, [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Prevent pull-to-refresh on mobile */
+body {
+  overscroll-behavior-y: contain;
+}
+
+/* Screen-reader only text */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

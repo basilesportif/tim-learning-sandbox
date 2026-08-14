@@ -1,0 +1,109 @@
+.angle-readout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--card-bg);
+  border-radius: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.angle-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0;
+}
+
+.angle-value {
+  font-size: 2.2rem;
+  font-weight: 800;
+  line-height: 1.05;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+.angle-direction {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-light);
+  text-align: center;
+  margin: 0;
+}
+
+.angle-direction.direction-cw {
+  color: var(--cw-hover);
+}
+
+.angle-direction.direction-ccw {
+  color: var(--ccw-hover);
+}
+
+/* Mobile phones - portrait */
+@media (max-width: 480px) {
+  .angle-readout {
+    padding: 8px 12px;
+  }
+
+  .angle-value {
+    font-size: 1.9rem;
+  }
+
+  .angle-label {
+    font-size: 0.7rem;
+  }
+
+  .angle-direction {
+    font-size: 0.78rem;
+  }
+}
+
+/* Tablets */
+@media (min-width: 700px) {
+  .angle-readout {
+    padding: 16px 20px;
+    border-radius: 18px;
+    gap: 4px;
+  }
+
+  .angle-label {
+    font-size: 0.9rem;
+  }
+
+  .angle-value {
+    font-size: 3.2rem;
+  }
+
+  .angle-direction {
+    font-size: 1rem;
+  }
+}
+
+/* Phone landscape - compact */
+@media (orientation: landscape) and (max-height: 500px) {
+  .angle-readout {
+    flex-direction: row;
+    align-items: baseline;
+    justify-content: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 10px;
+  }
+
+  .angle-label {
+    font-size: 0.65rem;
+  }
+
+  .angle-value {
+    font-size: 1.4rem;
+  }
+
+  .angle-direction {
+    font-size: 0.7rem;
+  }
+}

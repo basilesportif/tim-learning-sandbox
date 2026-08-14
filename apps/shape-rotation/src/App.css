@@ -1,0 +1,173 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  padding: 12px;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.app-header {
+  flex-shrink: 0;
+  text-align: center;
+  padding: 4px 0 8px;
+}
+
+.app-title {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.app-subtitle {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 2px 0 0;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 4px 0;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.stage-area {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-shrink: 1;
+  min-height: 0;
+}
+
+.controls-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 420px;
+  flex-shrink: 0;
+}
+
+/* Mobile phones - portrait */
+@media (max-width: 480px) {
+  .app {
+    padding: 8px;
+  }
+
+  .app-header {
+    padding: 2px 0 4px;
+  }
+
+  .app-title {
+    font-size: 1.1rem;
+  }
+
+  .app-subtitle {
+    font-size: 0.78rem;
+  }
+
+  .app-main {
+    gap: 8px;
+    padding: 2px 0;
+  }
+
+  .controls-area {
+    gap: 8px;
+  }
+}
+
+/* Tablets - iPad portrait and landscape */
+@media (min-width: 700px) {
+  .app {
+    padding: 20px 28px;
+  }
+
+  .app-header {
+    padding: 8px 0 12px;
+  }
+
+  .app-title {
+    font-size: 1.9rem;
+  }
+
+  .app-subtitle {
+    font-size: 1.05rem;
+    margin-top: 6px;
+  }
+
+  .app-main {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: center;
+    align-items: center;
+    gap: 48px;
+    padding: 8px;
+  }
+
+  .stage-area {
+    flex: 0 0 auto;
+  }
+
+  .controls-area {
+    flex: 0 0 auto;
+    min-width: 340px;
+    max-width: 440px;
+    gap: 18px;
+  }
+}
+
+/* Large screens */
+@media (min-width: 1000px) {
+  .app-main {
+    gap: 64px;
+  }
+}
+
+/* Phone landscape - compact side by side */
+@media (orientation: landscape) and (max-height: 500px) {
+  .app {
+    padding: 6px 12px;
+  }
+
+  .app-header {
+    padding: 0 0 2px;
+  }
+
+  .app-title {
+    font-size: 0.95rem;
+  }
+
+  .app-subtitle {
+    display: none;
+  }
+
+  .app-main {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    padding: 0;
+  }
+
+  .stage-area {
+    flex: 0 0 auto;
+  }
+
+  .controls-area {
+    flex: 1;
+    min-width: 220px;
+    max-width: 340px;
+    gap: 6px;
+  }
+}

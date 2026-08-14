@@ -1,0 +1,126 @@
+.shape-stage {
+  position: relative;
+  width: min(78vw, 320px);
+  aspect-ratio: 1 / 1;
+  background: var(--shape-surface);
+  border-radius: 26px;
+  box-shadow: 0 6px 20px rgba(30, 64, 175, 0.15);
+}
+
+.stage-guides,
+.shape-rotor {
+  position: absolute;
+  inset: 8px;
+}
+
+.stage-guides,
+.stage-shape {
+  width: 100%;
+  height: 100%;
+  display: block;
+  overflow: visible;
+}
+
+/* --- Static reference layer --- */
+
+.guide-ring {
+  fill: none;
+  stroke: var(--guide-ghost);
+  stroke-width: 2;
+}
+
+.guide-tick {
+  stroke: var(--guide-line);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.guide-tick-major {
+  stroke: var(--guide-strong);
+  stroke-width: 4;
+}
+
+.guide-shape {
+  fill: none;
+  stroke: var(--guide-line);
+  stroke-width: 2.5;
+  stroke-dasharray: 7 7;
+  stroke-linejoin: round;
+}
+
+.guide-pivot {
+  fill: var(--guide-strong);
+}
+
+/* --- Rotating shape --- */
+
+.shape-rotor {
+  transform-origin: 50% 50%;
+  transition: transform 300ms ease;
+  will-change: transform;
+}
+
+.shape-body {
+  fill: var(--shape-fill);
+  stroke: var(--shape-stroke);
+  stroke-width: 7;
+  stroke-linejoin: round;
+}
+
+.shape-eye {
+  fill: var(--shape-face);
+}
+
+.shape-smile {
+  fill: none;
+  stroke: var(--shape-face);
+  stroke-width: 6;
+  stroke-linecap: round;
+}
+
+.shape-nose {
+  fill: var(--shape-marker);
+  stroke: var(--shape-surface);
+  stroke-width: 4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shape-rotor {
+    transition: none;
+  }
+}
+
+/* Mobile phones - portrait */
+@media (max-width: 480px) {
+  .shape-stage {
+    width: min(82vw, 280px);
+    border-radius: 22px;
+  }
+}
+
+/* Tablets */
+@media (min-width: 700px) {
+  .shape-stage {
+    width: min(44vw, 420px);
+    border-radius: 32px;
+  }
+
+  .stage-guides,
+  .shape-rotor {
+    inset: 12px;
+  }
+}
+
+/* Phone landscape - size from the available height instead */
+@media (orientation: landscape) and (max-height: 500px) {
+  .shape-stage {
+    width: auto;
+    height: min(72dvh, 210px);
+    border-radius: 18px;
+  }
+
+  .stage-guides,
+  .shape-rotor {
+    inset: 6px;
+  }
+}

@@ -1,0 +1,198 @@
+.rotation-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.turn-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+}
+
+.turn-button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 76px;
+  padding: 10px 8px;
+  font-weight: 700;
+  color: var(--button-text);
+  background: var(--cw-color);
+  border: none;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  touch-action: manipulation;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+}
+
+.turn-ccw {
+  background: var(--ccw-color);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+}
+
+.turn-cw {
+  background: var(--cw-color);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+}
+
+.turn-ccw:hover {
+  background: var(--ccw-hover);
+}
+
+.turn-cw:hover {
+  background: var(--cw-hover);
+}
+
+.turn-button:active {
+  transform: scale(0.96);
+}
+
+.turn-arrow {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.turn-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+}
+
+.turn-label {
+  font-size: 0.85rem;
+  letter-spacing: 0.01em;
+}
+
+.turn-step {
+  font-size: 0.75rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.reset-button {
+  min-height: 44px;
+  padding: 10px 22px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 2px solid var(--card-border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  touch-action: manipulation;
+}
+
+.reset-button:hover:not(:disabled) {
+  background: white;
+  border-color: var(--text-secondary);
+}
+
+.reset-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* Mobile phones - portrait */
+@media (max-width: 480px) {
+  .turn-button {
+    min-height: 66px;
+    border-radius: 14px;
+  }
+
+  .turn-arrow {
+    font-size: 1.7rem;
+  }
+
+  .turn-label {
+    font-size: 0.78rem;
+  }
+
+  .turn-step {
+    font-size: 0.7rem;
+  }
+
+  .reset-button {
+    min-height: 40px;
+    padding: 8px 18px;
+    font-size: 0.82rem;
+  }
+}
+
+/* Tablets */
+@media (min-width: 700px) {
+  .rotation-controls {
+    gap: 16px;
+  }
+
+  .turn-buttons {
+    gap: 16px;
+  }
+
+  .turn-button {
+    min-height: 112px;
+    border-radius: 20px;
+    gap: 6px;
+  }
+
+  .turn-arrow {
+    font-size: 3rem;
+  }
+
+  .turn-label {
+    font-size: 1.05rem;
+  }
+
+  .turn-step {
+    font-size: 0.9rem;
+  }
+
+  .reset-button {
+    min-height: 52px;
+    padding: 12px 28px;
+    font-size: 1rem;
+  }
+}
+
+/* Phone landscape - compact */
+@media (orientation: landscape) and (max-height: 500px) {
+  .rotation-controls {
+    gap: 6px;
+  }
+
+  .turn-buttons {
+    gap: 8px;
+  }
+
+  .turn-button {
+    min-height: 56px;
+    padding: 6px;
+    border-radius: 12px;
+  }
+
+  .turn-arrow {
+    font-size: 1.5rem;
+  }
+
+  .turn-label {
+    font-size: 0.7rem;
+  }
+
+  .turn-step {
+    font-size: 0.65rem;
+  }
+
+  .reset-button {
+    min-height: 36px;
+    padding: 6px 14px;
+    font-size: 0.75rem;
+  }
+}
