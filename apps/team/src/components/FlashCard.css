@@ -1,0 +1,89 @@
+.flash-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+}
+
+.flash-counter {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #a5b4fc;
+}
+
+/* Prompt and answer occupy the same reserved space. */
+.flash-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 7.5rem;
+  text-align: center;
+}
+
+.flash-prompt {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.flash-answer {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.flash-first {
+  font-size: clamp(3rem, 15vw, 4.5rem);
+  font-weight: 900;
+  line-height: 1.05;
+  color: #ffffff;
+}
+
+.flash-last {
+  font-size: clamp(1.4rem, 6.5vw, 2rem);
+  font-weight: 600;
+  color: #c7d2fe;
+}
+
+@media (min-width: 700px) {
+  .flash-counter {
+    font-size: 1.3rem;
+  }
+
+  .flash-prompt {
+    font-size: 2rem;
+  }
+
+  .flash-first {
+    font-size: 4.5rem;
+  }
+
+  .flash-last {
+    font-size: 2rem;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 560px) {
+  .flash-card {
+    gap: 10px;
+  }
+
+  .flash-slot {
+    min-height: 5rem;
+  }
+
+  .flash-first {
+    font-size: clamp(2.4rem, 9vh, 3.4rem);
+  }
+
+  .flash-last {
+    font-size: 1.25rem;
+  }
+}

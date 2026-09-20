@@ -1,0 +1,51 @@
+/* Square box so real photos of any shape crop to the same tile. */
+.player-avatar {
+  width: min(320px, 76vw);
+  aspect-ratio: 1 / 1;
+  border-radius: 28px;
+  overflow: hidden;
+  background: #0f172a;
+  border: 4px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.45);
+}
+
+.player-avatar-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.player-avatar-letter {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(6rem, 36vw, 10rem);
+  font-weight: 900;
+  line-height: 1;
+}
+
+/* Tablets get the full-size tile. */
+@media (min-width: 700px) {
+  .player-avatar {
+    width: 340px;
+  }
+
+  .player-avatar-letter {
+    font-size: 10rem;
+  }
+}
+
+/* Phone landscape: keep the whole card on screen without scrolling. */
+@media (orientation: landscape) and (max-height: 560px) {
+  .player-avatar {
+    width: min(260px, 42vh);
+    border-radius: 20px;
+  }
+
+  .player-avatar-letter {
+    font-size: clamp(4rem, 22vh, 7rem);
+  }
+}
