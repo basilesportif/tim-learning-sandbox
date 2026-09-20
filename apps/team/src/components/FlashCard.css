@@ -1,89 +1,200 @@
 .flash-card {
+  /* The revealed name is a two-tier stack: a big first name with a smaller
+     last name under it for the two players who share a first name. Both tiers
+     are declared once here so the reserved slot below can be computed from
+     exactly the same numbers - that is what keeps the photo from resizing when
+     the answer appears. Media queries retune these two values, not the slot. */
+  --name-first-size: clamp(1.9rem, 7vw, 3.2rem);
+  --name-first-leading: 1.05;
+  --name-last-size: clamp(1rem, 3.6vw, 1.5rem);
+  --name-last-leading: 1.15;
+  --name-gap: 2px;
+
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 18px;
+  align-items: stretch;
+  gap: 10px;
   width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
-.flash-counter {
-  margin: 0;
-  font-size: 1.15rem;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: #a5b4fc;
-}
-
-/* Prompt and answer occupy the same reserved space. */
-.flash-slot {
+/* The only part of the card that flexes. Everything else is fixed height, so
+   the photo absorbs the difference between a phone and a desktop and the
+   button below stays put. `container-type: size` turns this box into the
+   reference the tile measures itself against. */
+.flash-photo {
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  min-height: 7.5rem;
-  text-align: center;
+  container-type: size;
 }
 
-.flash-prompt {
-  margin: 0;
-  font-size: 1.75rem;
-  font-weight: 700;
-  color: #e2e8f0;
+/* The answer's reserved space: blank before the reveal, so nothing shifts.
+   Tall enough for the full two-tier stack, so a one-line name (everybody but
+   the Ethans) leaves no visible gap and no jump either. */
+.flash-slot {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(
+    var(--name-first-size) * var(--name-first-leading) + var(--name-gap) +
+      var(--name-last-size) * var(--name-last-leading)
+  );
+  text-align: center;
 }
 
 .flash-answer {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: var(--name-gap);
 }
 
 .flash-first {
-  font-size: clamp(3rem, 15vw, 4.5rem);
+  font-size: var(--name-first-size);
   font-weight: 900;
-  line-height: 1.05;
+  line-height: var(--name-first-leading);
   color: #ffffff;
 }
 
+/* Second tier, only rendered when two players share a first name. Quieter than
+   the first name: it is a disambiguator, not the answer. */
 .flash-last {
-  font-size: clamp(1.4rem, 6.5vw, 2rem);
+  font-size: var(--name-last-size);
   font-weight: 600;
+  line-height: var(--name-last-leading);
   color: #c7d2fe;
 }
 
+/* Spoken, not seen: colour alone should not be the only feedback. */
+.flash-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.choice-list {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 8px;
+  width: 100%;
+  align-content: center;
+}
+
+.choice-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 8px 16px;
+  border: 3px solid rgba(255, 255, 255, 0.18);
+  border-radius: 16px;
+  background: rgba(99, 102, 241, 0.22);
+  color: #ffffff;
+  font-size: clamp(1.1rem, 4.4vw, 1.5rem);
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, opacity 0.18s ease,
+    transform 0.08s ease;
+}
+
+.choice-button:active:not(:disabled) {
+  transform: translateY(2px);
+}
+
+.choice-button:focus-visible {
+  outline: 4px solid #facc15;
+  outline-offset: 3px;
+}
+
+.choice-button--correct {
+  background: linear-gradient(180deg, #22c55e 0%, #15803d 100%);
+  border-color: #86efac;
+  opacity: 1;
+  cursor: default;
+}
+
+/* Wrong picks go quiet rather than loud: no shake, no red flash, just a
+   greyed-out button that is no longer in the running. */
+.choice-button--wrong {
+  background: rgba(127, 29, 29, 0.45);
+  border-color: rgba(248, 113, 113, 0.5);
+  color: #fecaca;
+  opacity: 0.6;
+  cursor: default;
+}
+
+.choice-button--faded {
+  opacity: 0.32;
+  cursor: default;
+}
+
+.choice-mark {
+  font-size: 1.2em;
+  line-height: 1;
+}
+
 @media (min-width: 700px) {
-  .flash-counter {
-    font-size: 1.3rem;
+  .flash-card {
+    --name-first-size: 3.2rem;
+    --name-last-size: 1.5rem;
+    gap: 14px;
   }
 
-  .flash-prompt {
-    font-size: 2rem;
-  }
-
-  .flash-first {
-    font-size: 4.5rem;
-  }
-
-  .flash-last {
-    font-size: 2rem;
+  .choice-button {
+    font-size: 1.5rem;
+    min-height: 60px;
   }
 }
 
+/* Landscape with room to spare: photo on the left, the four answers stacked
+   in a column on the right, both inside the same 100dvh box. */
+@media (orientation: landscape) and (min-width: 640px) {
+  .flash-card--choice {
+    flex-direction: row;
+    align-items: stretch;
+    gap: 20px;
+  }
+
+  .flash-card--choice .flash-photo {
+    flex: 1 1 auto;
+  }
+
+  .flash-card--choice .choice-list {
+    flex: 0 0 clamp(260px, 40%, 440px);
+    width: auto;
+    gap: 12px;
+  }
+}
+
+/* Short landscape: every tier shrinks against the viewport height, and the
+   reserved slot follows them down automatically. */
 @media (orientation: landscape) and (max-height: 560px) {
   .flash-card {
-    gap: 10px;
+    --name-first-size: clamp(1.5rem, 8vh, 2.2rem);
+    --name-last-size: clamp(0.85rem, 3.4vh, 1.1rem);
+    --name-gap: 1px;
+    gap: 8px;
   }
 
-  .flash-slot {
-    min-height: 5rem;
+  .choice-button {
+    min-height: 44px;
+    font-size: 1.05rem;
+    border-width: 2px;
   }
 
-  .flash-first {
-    font-size: clamp(2.4rem, 9vh, 3.4rem);
-  }
-
-  .flash-last {
-    font-size: 1.25rem;
+  .choice-list {
+    gap: 6px;
   }
 }

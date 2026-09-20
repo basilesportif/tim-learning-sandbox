@@ -34,3 +34,10 @@ const FIRST_NAME_COUNTS = DECK.reduce((counts, player) => {
 export function needsLastName(player) {
   return FIRST_NAME_COUNTS[player.first] > 1;
 }
+
+// The one place that decides how a name is written. The revealed answer and
+// the multiple-choice buttons both go through here, so a choice button can
+// never say something the answer would not.
+export function displayName(player) {
+  return needsLastName(player) ? `${player.first} ${player.last}` : player.first;
+}

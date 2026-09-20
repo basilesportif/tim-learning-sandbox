@@ -26,3 +26,13 @@ export function buildRound(players, avoidFirstSlug = null) {
 
   return round;
 }
+
+// The options for one multiple-choice card: the right answer plus distractors
+// drawn from the rest of the team, all shuffled so the answer is not parked in
+// the same slot every time. Distractors are real teammates rather than made-up
+// names, which is what makes the question worth answering.
+export function buildChoices(players, answer, count = 4) {
+  const distractors = shuffle(players.filter((player) => player.slug !== answer.slug));
+
+  return shuffle([answer, ...distractors.slice(0, Math.max(0, count - 1))]);
+}

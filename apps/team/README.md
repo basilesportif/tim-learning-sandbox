@@ -3,25 +3,53 @@
 A soccer-teammate name trainer for Manhattan SC Independiente, Male U9
 (WYSL Fall 2026).
 
-One teammate's photo fills the screen. Say the name out loud, tap **Show Name**
-to check, tap **Next** for the next kid. All 12 teammates come up once before
-anyone repeats, and the first card of a new round is never the player who just
-ended the previous one.
+One teammate's photo fills the screen and there is nothing else on it - no
+title, no team name, no progress counter, no prompt. Just the face, the answer
+area, and one big button. The whole card is sized to the viewport, so on a
+tablet in landscape the button is always on screen and the page never scrolls.
+
+## The two modes
+
+A **Multiple Choice** switch floats in the top-right corner. It is deliberately
+out of the layout (fixed position, over the background) so turning it on never
+costs any vertical space. The choice is remembered in `localStorage`, so it
+survives a reload.
+
+**Flip cards (default, switch off).** Say the name out loud, tap **Show Name**
+to check, tap **Next** for the next kid.
+
+**Multiple choice (switch on).** Four names appear: the right one plus three
+teammates picked at random from the rest of the deck, shuffled into random
+positions and re-dealt for every card. A wrong tap just greys that button out
+and leaves the others live - no score, no penalty, guess again. The right tap
+turns green with a check mark, the rest fade, and the big button becomes
+**Next**. **Show Name** still works as a "just tell me": it lights up the
+correct button. In landscape the four buttons sit in a column beside the photo;
+on a narrow portrait screen they stack underneath it.
+
+Space or Enter fires the big button in either mode.
+
+All 12 teammates come up once before anyone repeats, and the first card of a
+new round is never the player who just ended the previous one.
 
 Daniel is on the roster in `src/players.js` but marked `inDeck: false` - he
 knows his own name. Flip that one flag to `true` to deal him in.
 
-Both Ethans (Eisner and Waldman) are in the deck, which is why the answer shows
-the last name underneath the first name.
+Both Ethans (Eisner and Waldman) are in the deck, which is why their cards -
+and their choice buttons - show the last name too. On a flip card the answer is
+a two-tier stack: a big first name with the last name smaller and quieter
+underneath, and only for the players who need it. On a choice button it is one
+line. `needsLastName()` and `displayName()` in `src/players.js` are the single
+place that decides, so a choice button can never say something the answer
+would not.
 
-No backend, no login, no persistence - everything lives in component state.
+No backend, no login - the only thing persisted is the mode switch.
 
 ## Adding the photos
 
-Player photos are **not** in the repo yet. Until a photo exists, each card
-shows a generated letter tile (the player's first initial on a color derived
-from their slug). Dropping the real photos in makes them appear automatically,
-with zero code changes.
+Any player without a photo shows a generated letter tile (the player's first
+initial on a color derived from their slug). Dropping the real photo in makes
+it appear automatically, with zero code changes.
 
 1. Name each photo after the player's slug, with a `.jpg` extension:
 
