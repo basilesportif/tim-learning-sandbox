@@ -20,6 +20,35 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 const UKRAINE_APP_NAME = 'ukraine';
 const VOCAB_APP_NAME = 'vocab';
+
+// ---------------------------------------------------------------------------
+// Temporarily disabled apps
+//
+// Any app named here is taken completely offline while its code stays in the
+// repo: it is not linked from the root listing, and no static files, SPA
+// fallback, or /<app>/api/data routes are registered for it, so every
+// /<app>... URL falls through to a 404. Nothing on disk is touched (source,
+// public assets, dist, and data all stay exactly where they are).
+//
+// TO RE-ENABLE an app (e.g. 'team'):
+//   1. Remove 'team' from DISABLED_APPS_DEFAULT below.
+//   2. Commit + push, then on the prod server:
+//        cd /root/pkg/tim-learning-sandbox && git pull --ff-only && pm2 restart tim-learning
+//      No rebuild is needed - the already-built apps/team/dist stays on the server.
+//
+// The DISABLED_APPS env var EXTENDS (never replaces) the default list, so an
+// app can also be taken offline without a code change, e.g.:
+//   DISABLED_APPS=quickmath,clocks pm2 restart tim-learning --update-env
+// ---------------------------------------------------------------------------
+const DISABLED_APPS_DEFAULT = ['team'];
+const DISABLED_APPS = new Set([
+  ...DISABLED_APPS_DEFAULT,
+  ...String(process.env.DISABLED_APPS || '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter(Boolean),
+]);
+const isAppDisabled = (name) => DISABLED_APPS.has(name);
 const UKRAINE_COOKIE_NAME = 'ukraine_unlock';
 const UKRAINE_PASSWORD = process.env.UKRAINE_APP_PASSWORD || 'tim-learning';
 const UKRAINE_MAX_ATTEMPTS = 5;
@@ -1932,6 +1961,7 @@ function setupUkraineApiRoutes(appName, dataPath) {
 // List available apps at root
 app.get('/', (req, res) => {
   const apps = fs.readdirSync(appsDir).filter((f) => {
+    if (isAppDisabled(f)) return false;
     const appPath = join(appsDir, f);
     return fs.statSync(appPath).isDirectory() && fs.existsSync(join(appPath, 'dist'));
   });
@@ -1964,6 +1994,13 @@ app.get('/', (req, res) => {
 fs.readdirSync(appsDir).forEach((appName) => {
   const appPath = join(appsDir, appName);
   if (!fs.statSync(appPath).isDirectory()) return;
+
+  // Disabled apps get no routes at all (static, SPA fallback, or API), so every
+  // /<app>... request 404s. See DISABLED_APPS near the top of this file.
+  if (isAppDisabled(appName)) {
+    console.log(`\u26d4 Skipping disabled app: ${appName}`);
+    return;
+  }
 
   const distPath = join(appPath, 'dist');
   const dataPath = join(appPath, 'data');

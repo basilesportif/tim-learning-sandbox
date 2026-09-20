@@ -87,6 +87,26 @@ Apps are deployed to `tim-apps` server and served via Caddy at `learning.galebac
 - **URL**: https://learning.galebach.com/<app-name>
 - **Data**: Local JSON files in each app's `data/` directory
 
+## Temporarily Disabling an App
+
+`server/index.js` has a `DISABLED_APPS` flag near the top (just below `VOCAB_APP_NAME`).
+Any app listed there is hidden from the root listing and gets **no** routes registered
+(static, SPA fallback, or `/<app>/api/data/*`), so every `/<app>...` URL returns 404.
+All of the app's code, assets, and `data/` stay on disk untouched.
+
+Currently disabled: `team`.
+
+Re-enable it:
+
+1. Remove `'team'` from `DISABLED_APPS_DEFAULT` in `server/index.js`, commit, and push.
+2. On the server: `cd /root/pkg/tim-learning-sandbox && git pull --ff-only && pm2 restart tim-learning`
+
+No rebuild is required - the prebuilt `apps/team/dist` never leaves the server.
+
+The `DISABLED_APPS` env var *extends* (does not replace) the hardcoded list, so an app
+can also be pulled offline without a code change:
+`DISABLED_APPS=quickmath,clocks pm2 restart tim-learning --update-env`.
+
 ## Adding a New App
 
 1. Create new app in `apps/<app-name>/`
