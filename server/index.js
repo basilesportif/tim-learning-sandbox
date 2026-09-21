@@ -1,6 +1,6 @@
 import express from 'express';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve, sep } from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { SOURCE_SYNC_DEFAULTS, syncGdlCandidates } from './ukraine_sources.js';
@@ -141,6 +141,32 @@ setInterval(() => {
     }
   }
 }, 60 * 1000).unref();
+
+// The generic /<app>/api/data/:file routes below take the file name straight
+// from the URL, and Express URL-DECODES route params - so a param of
+// '..%2f..%2f..%2ftmp%2fpwned' arrives as '../../../tmp/pwned' and join()
+// happily walks out of the app's data directory. That was an unauthenticated
+// arbitrary-JSON-file write as the server user. Allow only plain file names,
+// and then double-check the resolved path is still inside dataPath.
+const APP_DATA_FILE_PATTERN = /^[a-z0-9_-]+$/i;
+
+function resolveAppDataFile(dataPath, fileParam) {
+  if (typeof fileParam !== 'string' || !APP_DATA_FILE_PATTERN.test(fileParam)) {
+    return null;
+  }
+
+  const filePath = join(dataPath, `${fileParam}.json`);
+  const resolvedRoot = resolve(dataPath);
+  const resolvedFile = resolve(filePath);
+
+  // Belt and braces: the pattern above already excludes '/', '\\' and '.', but
+  // never read or write outside the app's own data directory regardless.
+  if (resolvedFile !== resolvedRoot && !resolvedFile.startsWith(resolvedRoot + sep)) {
+    return null;
+  }
+
+  return filePath;
+}
 
 function ensureJsonFile(filePath, fallbackValue) {
   if (!fs.existsSync(filePath)) {
@@ -2379,7 +2405,12 @@ fs.readdirSync(appsDir).forEach((appName) => {
   } else {
     // Generic API routes for simple app data persistence
     app.get(`/${appName}/api/data/:file`, (req, res) => {
-      const filePath = join(dataPath, `${req.params.file}.json`);
+      const filePath = resolveAppDataFile(dataPath, req.params.file);
+      if (!filePath) {
+        res.status(400).json({ error: 'invalid_file' });
+        return;
+      }
+
       if (fs.existsSync(filePath)) {
         res.json(JSON.parse(fs.readFileSync(filePath, 'utf-8')));
       } else {
@@ -2388,7 +2419,12 @@ fs.readdirSync(appsDir).forEach((appName) => {
     });
 
     app.post(`/${appName}/api/data/:file`, (req, res) => {
-      const filePath = join(dataPath, `${req.params.file}.json`);
+      const filePath = resolveAppDataFile(dataPath, req.params.file);
+      if (!filePath) {
+        res.status(400).json({ error: 'invalid_file' });
+        return;
+      }
+
       fs.writeFileSync(filePath, JSON.stringify(req.body, null, 2));
       res.json({ success: true });
     });
