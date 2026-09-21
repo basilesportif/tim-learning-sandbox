@@ -43,7 +43,24 @@ line. `needsLastName()` and `displayName()` in `src/players.js` are the single
 place that decides, so a choice button can never say something the answer
 would not.
 
-No backend, no login - the only thing persisted is the mode switch.
+The app itself has no backend and no login screen of its own - the only thing
+persisted is the mode switch. Access is gated by the sandbox server (see below).
+
+## Password
+
+`/team` shows real kids' names and photos, so the sandbox server locks the whole
+route - static assets and photos included - behind a password. Set it on the server
+before production use:
+
+```bash
+export TEAM_APP_PASSWORD="your-password"
+```
+
+With no `TEAM_APP_PASSWORD` set, the app stays locked for everyone; there is no
+fallback password. Unlocking sets the `team_unlock` cookie (HttpOnly, `Path=/team`,
+7-day TTL); 5 wrong attempts from one IP trigger a 10-minute block. The login page is
+rendered by `server/index.js`, so changing the password never requires rebuilding
+`dist/`.
 
 ## Adding the photos
 

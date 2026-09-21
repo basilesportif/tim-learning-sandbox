@@ -107,6 +107,28 @@ The `DISABLED_APPS` env var *extends* (does not replace) the hardcoded list, so 
 can also be pulled offline without a code change:
 `DISABLED_APPS=quickmath,clocks pm2 restart tim-learning --update-env`.
 
+### The `/team` Password Gate
+
+`/team` shows real kids' names and faces, and those come out of static files
+(`apps/team/dist/assets/*.js` and `apps/team/dist/photos/*.jpg`), so the gate is
+enforced **server-side in front of every `/team` route** - the static middleware, the
+photos, the SPA fallback, and the API alike. The login page is rendered by
+`server/index.js`, so unlocking never needs an `apps/team` rebuild.
+
+- Set `TEAM_APP_PASSWORD` in the server's `.env` (see `.env.example`).
+- **If `TEAM_APP_PASSWORD` is unset the app stays locked for everyone** - there is no
+  fallback password, and the server logs a warning at startup.
+- A correct password sets the `team_unlock` cookie (HttpOnly, `SameSite=Lax`,
+  `Path=/team`, 7-day TTL; `Secure` when `NODE_ENV=production`). Sessions live in
+  memory, so a `pm2 restart` logs everyone out.
+- 5 wrong attempts per IP trigger a 10-minute block (HTTP 429 with `retry_after_sec`).
+- `POST /team/api/auth/logout` clears the cookie; `GET /team/api/auth/status` reports
+  `{ "unlocked": bool }`.
+
+The gate only matters once `team` is removed from `DISABLED_APPS_DEFAULT`. While the
+app is disabled the gate routes are never registered at all and every `/team...` URL
+is a plain 404.
+
 ## Adding a New App
 
 1. Create new app in `apps/<app-name>/`

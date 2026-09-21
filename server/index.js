@@ -20,6 +20,7 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 const UKRAINE_APP_NAME = 'ukraine';
 const VOCAB_APP_NAME = 'vocab';
+const TEAM_APP_NAME = 'team';
 
 // ---------------------------------------------------------------------------
 // Temporarily disabled apps
@@ -35,6 +36,8 @@ const VOCAB_APP_NAME = 'vocab';
 //   2. Commit + push, then on the prod server:
 //        cd /root/pkg/tim-learning-sandbox && git pull --ff-only && pm2 restart tim-learning
 //      No rebuild is needed - the already-built apps/team/dist stays on the server.
+//      Note: once re-enabled, /team is still password-gated by TEAM_APP_PASSWORD
+//      (see setupTeamGate below), so set that in the server .env too.
 //
 // The DISABLED_APPS env var EXTENDS (never replaces) the default list, so an
 // app can also be taken offline without a code change, e.g.:
@@ -59,6 +62,11 @@ const UKRAINE_PARENT_PIN = process.env.UKRAINE_PARENT_PIN || '1111';
 const UKRAINE_PARENT_MAX_ATTEMPTS = 6;
 const UKRAINE_PARENT_BLOCK_MS = 10 * 60 * 1000;
 const UKRAINE_PARENT_TTL_MS = 12 * 60 * 60 * 1000;
+const TEAM_COOKIE_NAME = 'team_unlock';
+const TEAM_PASSWORD = process.env.TEAM_APP_PASSWORD || '';
+const TEAM_MAX_ATTEMPTS = 5;
+const TEAM_BLOCK_MS = 10 * 60 * 1000;
+const TEAM_UNLOCK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DIAGNOSTIC_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const DIAGNOSTIC_DEFAULT_MAX_USES = 1;
 const DIAGNOSTIC_RATE_WINDOW_MS = 15 * 60 * 1000;
@@ -72,12 +80,17 @@ const unlockAttempts = new Map();
 const parentSessions = new Map();
 const parentAttempts = new Map();
 const diagnosticRateLimits = new Map();
+const teamUnlockSessions = new Map();
+const teamUnlockAttempts = new Map();
 
 if (!process.env.UKRAINE_APP_PASSWORD) {
   console.warn('[ukraine] UKRAINE_APP_PASSWORD is not set. Using development fallback password.');
 }
 if (!process.env.UKRAINE_PARENT_PIN) {
   console.warn('[ukraine] UKRAINE_PARENT_PIN is not set. Using development fallback PIN.');
+}
+if (!process.env.TEAM_APP_PASSWORD) {
+  console.warn('[team] TEAM_APP_PASSWORD is not set. The /team app will stay locked for everyone until it is set in .env.');
 }
 
 setInterval(() => {
@@ -110,6 +123,18 @@ setInterval(() => {
   for (const [ip, state] of diagnosticRateLimits.entries()) {
     if ((state.resetAt || 0) <= now) {
       diagnosticRateLimits.delete(ip);
+    }
+  }
+
+  for (const [token, expiresAt] of teamUnlockSessions.entries()) {
+    if (expiresAt <= now) {
+      teamUnlockSessions.delete(token);
+    }
+  }
+
+  for (const [ip, state] of teamUnlockAttempts.entries()) {
+    if ((state.blockedUntil || 0) <= now && (state.lastFailureAt || 0) + TEAM_BLOCK_MS <= now) {
+      teamUnlockAttempts.delete(ip);
     }
   }
 }, 60 * 1000).unref();
@@ -867,6 +892,265 @@ function requireUkraineParent(req, res, next) {
 
   res.status(401).json({ error: 'parent_locked' });
 }
+
+// ---------------------------------------------------------------------------
+// /team password gate
+//
+// Unlike /ukraine (whose login screen lives inside its React bundle and whose
+// secrets only come back from the API), the team app's secret content - the
+// real kids' names baked into dist/assets/*.js and their face photos in
+// dist/photos/*.jpg - is served as plain static files. So the gate has to sit
+// in front of express.static and the SPA fallback, not just in front of the
+// API. The login page is rendered here, server-side, so that unlocking never
+// requires rebuilding apps/team/dist (prod does not rebuild on deploy).
+// ---------------------------------------------------------------------------
+
+function escapeHtml(value) {
+  return String(value === undefined || value === null ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function timingSafeEqualStrings(a, b) {
+  const bufferA = Buffer.from(String(a), 'utf8');
+  const bufferB = Buffer.from(String(b), 'utf8');
+
+  if (bufferA.length !== bufferB.length) {
+    return false;
+  }
+
+  return crypto.timingSafeEqual(bufferA, bufferB);
+}
+
+function isTeamUnlocked(req) {
+  const cookies = parseCookies(req);
+  const token = cookies[TEAM_COOKIE_NAME];
+
+  if (!token) {
+    return false;
+  }
+
+  const expiresAt = teamUnlockSessions.get(token);
+  if (!expiresAt) {
+    return false;
+  }
+
+  if (expiresAt <= Date.now()) {
+    teamUnlockSessions.delete(token);
+    return false;
+  }
+
+  return true;
+}
+
+// Only same-origin paths inside the team app are accepted, so the login form's
+// `next` field can never be used as an open redirect.
+function sanitizeTeamNextPath(value) {
+  const fallback = `/${TEAM_APP_NAME}/`;
+  const raw = typeof value === 'string' ? value.trim() : '';
+
+  if (!raw || !raw.startsWith('/')) {
+    return fallback;
+  }
+
+  if (raw.startsWith('//') || raw.includes('\\')) {
+    return fallback;
+  }
+
+  if (raw === `/${TEAM_APP_NAME}` || raw.startsWith(`/${TEAM_APP_NAME}/`)) {
+    return raw;
+  }
+
+  return fallback;
+}
+
+function renderTeamLoginPage({ error = '', next = '' } = {}) {
+  const safeNext = escapeHtml(sanitizeTeamNextPath(next));
+  const errorBlock = error ? `<p class="error">${escapeHtml(error)}</p>` : '';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Team Flashcards</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 420px; margin: 60px auto; padding: 20px; color: #333; }
+    h1 { color: #333; font-size: 1.5em; }
+    p { line-height: 1.4; }
+    form { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+    input[type="password"] { font-size: 1.1em; padding: 10px; border: 1px solid #ccc; border-radius: 6px; }
+    button { font-size: 1.1em; padding: 10px; border: 0; border-radius: 6px; background: #0066cc; color: #fff; cursor: pointer; }
+    .error { color: #b00020; font-weight: 600; }
+    .hint { color: #666; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>Team Flashcards</h1>
+  <p class="hint">This app is password protected.</p>
+  ${errorBlock}
+  <form method="POST" action="/${TEAM_APP_NAME}/api/auth/unlock">
+    <input type="hidden" name="next" value="${safeNext}">
+    <input type="password" name="password" placeholder="Password" autocomplete="current-password" autofocus>
+    <button type="submit">Unlock</button>
+  </form>
+</body>
+</html>
+`;
+}
+
+function setupTeamGate(appName) {
+  const secureFlag = () => (process.env.NODE_ENV === 'production' ? '; Secure' : '');
+
+  // Browsers posting the server-rendered form get redirects + HTML back;
+  // fetch()/curl callers sending JSON get JSON back.
+  const isFormPost = (req) => {
+    if (req.is('application/x-www-form-urlencoded')) {
+      return true;
+    }
+
+    if (typeof req.body?.next === 'string') {
+      return true;
+    }
+
+    const accept = String(req.headers.accept || '');
+    return accept.includes('text/html') && !accept.includes('application/json');
+  };
+
+  app.post(`/${appName}/api/auth/unlock`, (req, res) => {
+    const ip = getClientIp(req);
+    const now = Date.now();
+    const state = teamUnlockAttempts.get(ip) || { failures: 0, blockedUntil: 0, lastFailureAt: 0 };
+    const formPost = isFormPost(req);
+    const nextPath = sanitizeTeamNextPath(req.body?.next);
+
+    const sendLoginPage = (status, message) => {
+      res.status(status);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(renderTeamLoginPage({ error: message, next: nextPath }));
+    };
+
+    const sendRateLimited = (retryAfterSec) => {
+      if (formPost) {
+        const minutes = Math.max(1, Math.ceil(retryAfterSec / 60));
+        sendLoginPage(429, `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`);
+        return;
+      }
+
+      res.status(429).json({ error: 'rate_limited', retry_after_sec: retryAfterSec });
+    };
+
+    if (state.blockedUntil > now) {
+      sendRateLimited(Math.ceil((state.blockedUntil - now) / 1000));
+      return;
+    }
+
+    const submittedPassword = typeof req.body?.password === 'string' ? req.body.password : '';
+    const configured = TEAM_PASSWORD.length > 0;
+    const passwordOk = configured
+      && submittedPassword.length > 0
+      && timingSafeEqualStrings(submittedPassword, TEAM_PASSWORD);
+
+    if (!passwordOk) {
+      state.failures += 1;
+      state.lastFailureAt = now;
+
+      if (state.failures >= TEAM_MAX_ATTEMPTS) {
+        state.failures = 0;
+        state.blockedUntil = now + TEAM_BLOCK_MS;
+        teamUnlockAttempts.set(ip, state);
+        sendRateLimited(Math.ceil(TEAM_BLOCK_MS / 1000));
+        return;
+      }
+
+      teamUnlockAttempts.set(ip, state);
+
+      // Fail closed: with no TEAM_APP_PASSWORD configured, nothing unlocks.
+      if (!configured) {
+        if (formPost) {
+          sendLoginPage(401, 'Password is not configured on the server (set TEAM_APP_PASSWORD in .env)');
+          return;
+        }
+
+        res.status(401).json({
+          error: 'not_configured',
+          message: 'Password is not configured on the server (set TEAM_APP_PASSWORD in .env)',
+        });
+        return;
+      }
+
+      if (formPost) {
+        sendLoginPage(401, 'Incorrect password.');
+        return;
+      }
+
+      res.status(401).json({ error: 'invalid_password', attempts_remaining: TEAM_MAX_ATTEMPTS - state.failures });
+      return;
+    }
+
+    teamUnlockAttempts.delete(ip);
+
+    const token = crypto.randomBytes(24).toString('hex');
+    const expiresAt = now + TEAM_UNLOCK_TTL_MS;
+    teamUnlockSessions.set(token, expiresAt);
+
+    const maxAgeSec = Math.floor(TEAM_UNLOCK_TTL_MS / 1000);
+    const cookieValue = `${TEAM_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secureFlag()}`;
+    res.setHeader('Set-Cookie', cookieValue);
+
+    if (formPost) {
+      res.redirect(302, nextPath);
+      return;
+    }
+
+    res.json({ success: true, unlocked_until: new Date(expiresAt).toISOString() });
+  });
+
+  app.post(`/${appName}/api/auth/logout`, (req, res) => {
+    const token = parseCookies(req)[TEAM_COOKIE_NAME];
+    if (token) {
+      teamUnlockSessions.delete(token);
+    }
+
+    const cookieValue = `${TEAM_COOKIE_NAME}=; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag()}`;
+    res.setHeader('Set-Cookie', cookieValue);
+    res.json({ success: true });
+  });
+
+  app.get(`/${appName}/api/auth/status`, (req, res) => {
+    res.json({ unlocked: isTeamUnlocked(req) });
+  });
+
+  // Everything else under /<appName> - static assets, photos, the SPA fallback
+  // and the generic /api/data routes - is locked until the cookie is present.
+  app.use(`/${appName}`, (req, res, next) => {
+    if (req.path.startsWith('/api/auth/')) {
+      next();
+      return;
+    }
+
+    if (isTeamUnlocked(req)) {
+      next();
+      return;
+    }
+
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      const requestedPath = String(req.originalUrl || `/${appName}/`).split('?')[0];
+      res.status(401);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(renderTeamLoginPage({ next: requestedPath }));
+      return;
+    }
+
+    res.status(401).json({ error: 'locked' });
+  });
+}
+
 
 function setupUkraineApiRoutes(appName, dataPath) {
   const ruTextsPath = join(dataPath, 'texts.ru.json');
@@ -2008,6 +2292,11 @@ fs.readdirSync(appsDir).forEach((appName) => {
   // Ensure data directory exists
   if (!fs.existsSync(dataPath)) {
     fs.mkdirSync(dataPath, { recursive: true });
+  }
+
+  // Must run before any /team route (API, static, SPA fallback) is registered.
+  if (appName === TEAM_APP_NAME) {
+    setupTeamGate(appName);
   }
 
   if (appName === UKRAINE_APP_NAME) {
