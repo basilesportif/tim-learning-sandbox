@@ -65,6 +65,9 @@ const UKRAINE_PARENT_TTL_MS = 12 * 60 * 60 * 1000;
 const TEAM_COOKIE_NAME = 'team_unlock';
 const TEAM_PASSWORD = process.env.TEAM_APP_PASSWORD || '';
 const TEAM_MAX_ATTEMPTS = 5;
+// teamUnlockAttempts is keyed on a remote-influenced string, so cap how many
+// distinct keys we are willing to remember (see rememberTeamUnlockAttempt).
+const TEAM_MAX_TRACKED_IPS = 5000;
 const TEAM_BLOCK_MS = 10 * 60 * 1000;
 const TEAM_UNLOCK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DIAGNOSTIC_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
@@ -229,6 +232,26 @@ function getClientIp(req) {
   const forwarded = req.headers['x-forwarded-for'];
   if (typeof forwarded === 'string' && forwarded.length > 0) {
     return forwarded.split(',')[0].trim();
+  }
+  return req.socket?.remoteAddress || 'unknown';
+}
+
+// getClientIp() above trusts the FIRST X-Forwarded-For entry, which a client can
+// set to anything it likes: Caddy APPENDS the real peer address to whatever XFF
+// header arrives, it does not replace it. That makes the first entry useless for
+// anything security-sensitive (an attacker can rotate it per request and never
+// trip a per-IP rate limit). The LAST entry is the one Caddy itself appended, so
+// it is the only one a client cannot spoof - use this for rate limiting.
+// NOTE: /ukraine's unlock + parent-PIN handlers still use the spoofable
+// getClientIp() and should be migrated to this helper separately.
+function getTrustedClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.length > 0) {
+    const parts = forwarded.split(',');
+    const last = parts[parts.length - 1].trim();
+    if (last) {
+      return last;
+    }
   }
   return req.socket?.remoteAddress || 'unknown';
 }
@@ -946,6 +969,21 @@ function isTeamUnlocked(req) {
   return true;
 }
 
+// The attempts map is keyed by client IP, which - even using the trusted last
+// X-Forwarded-For entry - an attacker with a botnet can still vary. Bound the
+// map so it can never grow without limit: once it is full, drop the
+// least-recently-inserted entry (Map iterates in insertion order) to make room.
+function rememberTeamUnlockAttempt(ip, state) {
+  if (!teamUnlockAttempts.has(ip) && teamUnlockAttempts.size >= TEAM_MAX_TRACKED_IPS) {
+    const oldest = teamUnlockAttempts.keys().next().value;
+    if (oldest !== undefined) {
+      teamUnlockAttempts.delete(oldest);
+    }
+  }
+
+  teamUnlockAttempts.set(ip, state);
+}
+
 // Only same-origin paths inside the team app are accepted, so the login form's
 // `next` field can never be used as an open redirect.
 function sanitizeTeamNextPath(value) {
@@ -1003,7 +1041,27 @@ function renderTeamLoginPage({ error = '', next = '' } = {}) {
 }
 
 function setupTeamGate(appName) {
-  const secureFlag = () => (process.env.NODE_ENV === 'production' ? '; Secure' : '');
+  // Routes that are allowed through the gate unauthenticated. These three are
+  // registered BEFORE the gate middleware so they never actually reach it; the
+  // list is an exact allowlist rather than an `/api/auth/` prefix match so that
+  // unknown paths like /team/api/auth/bogus (or /team//api/auth/x) cannot slip
+  // past the gate into the SPA fallback.
+  const OPEN_PATHS = new Set(['/api/auth/unlock', '/api/auth/logout', '/api/auth/status']);
+
+  // prod does NOT set NODE_ENV, so keying `Secure` off NODE_ENV alone shipped the
+  // cookie without it over HTTPS. Behind Caddy the request arrives as plain HTTP
+  // with X-Forwarded-Proto: https, so check that too. Plain-HTTP localhost dev
+  // still gets a cookie it can actually use.
+  const isHttpsRequest = (req) => {
+    if (req.secure) {
+      return true;
+    }
+
+    const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+    return proto === 'https';
+  };
+
+  const secureFlag = (req) => (isHttpsRequest(req) || process.env.NODE_ENV === 'production' ? '; Secure' : '');
 
   // Browsers posting the server-rendered form get redirects + HTML back;
   // fetch()/curl callers sending JSON get JSON back.
@@ -1021,7 +1079,9 @@ function setupTeamGate(appName) {
   };
 
   app.post(`/${appName}/api/auth/unlock`, (req, res) => {
-    const ip = getClientIp(req);
+    // Deliberately the trusted (last) XFF entry, not getClientIp(): otherwise a
+    // fresh spoofed X-Forwarded-For per request buys unlimited password guesses.
+    const ip = getTrustedClientIp(req);
     const now = Date.now();
     const state = teamUnlockAttempts.get(ip) || { failures: 0, blockedUntil: 0, lastFailureAt: 0 };
     const formPost = isFormPost(req);
@@ -1062,12 +1122,12 @@ function setupTeamGate(appName) {
       if (state.failures >= TEAM_MAX_ATTEMPTS) {
         state.failures = 0;
         state.blockedUntil = now + TEAM_BLOCK_MS;
-        teamUnlockAttempts.set(ip, state);
+        rememberTeamUnlockAttempt(ip, state);
         sendRateLimited(Math.ceil(TEAM_BLOCK_MS / 1000));
         return;
       }
 
-      teamUnlockAttempts.set(ip, state);
+      rememberTeamUnlockAttempt(ip, state);
 
       // Fail closed: with no TEAM_APP_PASSWORD configured, nothing unlocks.
       if (!configured) {
@@ -1099,7 +1159,7 @@ function setupTeamGate(appName) {
     teamUnlockSessions.set(token, expiresAt);
 
     const maxAgeSec = Math.floor(TEAM_UNLOCK_TTL_MS / 1000);
-    const cookieValue = `${TEAM_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secureFlag()}`;
+    const cookieValue = `${TEAM_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secureFlag(req)}`;
     res.setHeader('Set-Cookie', cookieValue);
 
     if (formPost) {
@@ -1116,7 +1176,7 @@ function setupTeamGate(appName) {
       teamUnlockSessions.delete(token);
     }
 
-    const cookieValue = `${TEAM_COOKIE_NAME}=; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag()}`;
+    const cookieValue = `${TEAM_COOKIE_NAME}=; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag(req)}`;
     res.setHeader('Set-Cookie', cookieValue);
     res.json({ success: true });
   });
@@ -1128,7 +1188,20 @@ function setupTeamGate(appName) {
   // Everything else under /<appName> - static assets, photos, the SPA fallback
   // and the generic /api/data routes - is locked until the cookie is present.
   app.use(`/${appName}`, (req, res, next) => {
-    if (req.path.startsWith('/api/auth/')) {
+    // Express routes case-insensitively, so /Team/ reaches this gate (no bypass),
+    // but browsers match the cookie's `Path=/team` case-SENSITIVELY - a visitor
+    // who unlocks and then hits /Team/ would send no cookie and be stuck on the
+    // login page forever. Bounce them to the canonical lowercase path. The
+    // redirect target always starts with the exact lowercase prefix, so it can
+    // never bounce back here a second time.
+    const originalUrl = String(req.originalUrl || `/${appName}/`);
+    const matchedPrefix = originalUrl.slice(0, appName.length + 1);
+    if (matchedPrefix !== `/${appName}`) {
+      res.redirect(301, `/${appName}${originalUrl.slice(appName.length + 1)}`);
+      return;
+    }
+
+    if (OPEN_PATHS.has(req.path)) {
       next();
       return;
     }

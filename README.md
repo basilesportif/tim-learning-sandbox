@@ -119,15 +119,64 @@ photos, the SPA fallback, and the API alike. The login page is rendered by
 - **If `TEAM_APP_PASSWORD` is unset the app stays locked for everyone** - there is no
   fallback password, and the server logs a warning at startup.
 - A correct password sets the `team_unlock` cookie (HttpOnly, `SameSite=Lax`,
-  `Path=/team`, 7-day TTL; `Secure` when `NODE_ENV=production`). Sessions live in
+  `Path=/team`, 7-day TTL; `Secure` whenever the request is HTTPS - detected via
+  `X-Forwarded-Proto` behind Caddy - or `NODE_ENV=production`). Sessions live in
   memory, so a `pm2 restart` logs everyone out.
 - 5 wrong attempts per IP trigger a 10-minute block (HTTP 429 with `retry_after_sec`).
+  The rate limiter keys on the **last** `X-Forwarded-For` entry (the one Caddy appends),
+  because the first entry is attacker-controlled and would make the limit bypassable.
+- Only `/team/api/auth/unlock`, `/team/api/auth/logout` and `/team/api/auth/status` are
+  reachable without the cookie. Anything else under `/team` - including
+  `/team/api/auth/<anything-else>` - returns 401.
+- `/Team/...` 301-redirects to `/team/...` so the case-sensitive cookie `Path` matches.
 - `POST /team/api/auth/logout` clears the cookie; `GET /team/api/auth/status` reports
   `{ "unlocked": bool }`.
 
 The gate only matters once `team` is removed from `DISABLED_APPS_DEFAULT`. While the
 app is disabled the gate routes are never registered at all and every `/team...` URL
 is a plain 404.
+
+#### Enable-day smoke checklist
+
+There is **no automated server test suite in this repo**, so this checklist is the
+verification mechanism. Run it against prod right after removing `'team'` from
+`DISABLED_APPS_DEFAULT`, deploying, and confirming `TEAM_APP_PASSWORD` is in the
+server `.env`. Every check must pass before telling anyone the app is up.
+
+```bash
+BASE=https://learning.galebach.com
+
+# 1. Unauthenticated app root -> 401 (and the body is the login page, not the SPA)
+curl -s -o /dev/null -w '%{http_code}\n' "$BASE/team/"                       # 401
+curl -s "$BASE/team/" | grep -c 'Team Flashcards'                            # >= 1
+
+# 2. The secrets themselves (bundle with the kids' names, photos) -> 401.
+#    Get real file names off the server first:
+#      ls /root/pkg/tim-learning-sandbox/apps/team/dist/assets/*.js
+#      ls /root/pkg/tim-learning-sandbox/apps/team/dist/photos/*.jpg
+curl -s -o /dev/null -w '%{http_code}\n' "$BASE/team/assets/<hashed>.js"     # 401
+curl -s -o /dev/null -w '%{http_code}\n' "$BASE/team/photos/<name>.jpg"      # 401
+
+# 3. No unauthenticated hole under /api/auth/
+curl -s -o /dev/null -w '%{http_code}\n' "$BASE/team/api/auth/bogus"         # 401
+curl -s -o /dev/null -w '%{http_code}\n' "$BASE/team//api/auth/x"            # 401
+
+# 4. Wrong password -> 401; correct password -> 200 + Set-Cookie: team_unlock (Secure)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' \
+  -d '{"password":"nope"}' "$BASE/team/api/auth/unlock"                      # 401
+curl -s -D - -o /dev/null -X POST -H 'Content-Type: application/json' \
+  -d "{\"password\":\"$TEAM_APP_PASSWORD\"}" "$BASE/team/api/auth/unlock" \
+  | grep -i 'set-cookie'          # team_unlock=...; HttpOnly; SameSite=Lax; Secure
+
+# 5. With the cookie, the app and its assets load
+curl -s -c jar -o /dev/null -X POST -H 'Content-Type: application/json' \
+  -d "{\"password\":\"$TEAM_APP_PASSWORD\"}" "$BASE/team/api/auth/unlock"
+curl -s -b jar -o /dev/null -w '%{http_code}\n' "$BASE/team/"                # 200
+curl -s -b jar -o /dev/null -w '%{http_code}\n' "$BASE/team/assets/<hashed>.js"  # 200
+```
+
+Mind the 5-attempt / 10-minute block while testing wrong passwords - it is keyed on
+the real client IP, so a few bad guesses from your laptop will lock your laptop out.
 
 ## Adding a New App
 
