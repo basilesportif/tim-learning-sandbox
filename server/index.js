@@ -25,25 +25,32 @@ const TEAM_APP_NAME = 'team';
 // ---------------------------------------------------------------------------
 // Temporarily disabled apps
 //
+// NO APPS ARE DISABLED BY DEFAULT RIGHT NOW - DISABLED_APPS_DEFAULT is empty.
+// The machinery below is kept because it is handy when an app needs to be
+// pulled offline for a while.
+//
 // Any app named here is taken completely offline while its code stays in the
 // repo: it is not linked from the root listing, and no static files, SPA
 // fallback, or /<app>/api/data routes are registered for it, so every
 // /<app>... URL falls through to a 404. Nothing on disk is touched (source,
 // public assets, dist, and data all stay exactly where they are).
 //
-// TO RE-ENABLE an app (e.g. 'team'):
-//   1. Remove 'team' from DISABLED_APPS_DEFAULT below.
+// TO DISABLE an app, add its name to DISABLED_APPS_DEFAULT (e.g. 'team');
+// TO RE-ENABLE it, take the name back out. Either way:
+//   1. Edit DISABLED_APPS_DEFAULT below.
 //   2. Commit + push, then on the prod server:
 //        cd /root/pkg/tim-learning-sandbox && git pull --ff-only && pm2 restart tim-learning
-//      No rebuild is needed - the already-built apps/team/dist stays on the server.
-//      Note: once re-enabled, /team is still password-gated by TEAM_APP_PASSWORD
-//      (see setupTeamGate below), so set that in the server .env too.
+//      No rebuild is needed - the already-built apps/<app>/dist stays on the server.
+//
+// Note: /team is (and stays) password-gated by TEAM_APP_PASSWORD independently
+// of this list - see setupTeamGate below - so that must be set in the server
+// .env for anyone to get in.
 //
 // The DISABLED_APPS env var EXTENDS (never replaces) the default list, so an
 // app can also be taken offline without a code change, e.g.:
 //   DISABLED_APPS=quickmath,clocks pm2 restart tim-learning --update-env
 // ---------------------------------------------------------------------------
-const DISABLED_APPS_DEFAULT = ['team'];
+const DISABLED_APPS_DEFAULT = [];
 const DISABLED_APPS = new Set([
   ...DISABLED_APPS_DEFAULT,
   ...String(process.env.DISABLED_APPS || '')
@@ -69,7 +76,23 @@ const TEAM_MAX_ATTEMPTS = 5;
 // distinct keys we are willing to remember (see rememberTeamUnlockAttempt).
 const TEAM_MAX_TRACKED_IPS = 5000;
 const TEAM_BLOCK_MS = 10 * 60 * 1000;
-const TEAM_UNLOCK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+// This is a low-stakes household kids' flashcard app and Tim asked for the
+// password to be remembered after a single successful entry, so an unlock
+// lasts a year on that browser instead of a week. The gate still keeps
+// strangers out, the brute-force rate limiting above is unchanged, and
+// rotating TEAM_APP_PASSWORD invalidates every outstanding unlock cookie
+// (see TEAM_UNLOCK_SECRET below).
+const TEAM_UNLOCK_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+// Unlock cookies are stateless HMAC-signed tokens (see makeTeamUnlockToken /
+// isTeamUnlocked) rather than random ids in an in-memory map, so an unlock
+// survives a pm2 restart or a reboot instead of silently re-prompting
+// everybody on every deploy.
+//
+// The signing key is DERIVED FROM THE PASSWORD on purpose: there is no extra
+// env var or state file to manage, and changing TEAM_APP_PASSWORD changes the
+// key, which instantly invalidates every cookie that was issued under the old
+// password. Password rotation is the revocation story.
+const TEAM_UNLOCK_SECRET = crypto.createHash('sha256').update(`team-unlock:v1:${TEAM_PASSWORD}`).digest();
 const DIAGNOSTIC_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const DIAGNOSTIC_DEFAULT_MAX_USES = 1;
 const DIAGNOSTIC_RATE_WINDOW_MS = 15 * 60 * 1000;
@@ -83,7 +106,6 @@ const unlockAttempts = new Map();
 const parentSessions = new Map();
 const parentAttempts = new Map();
 const diagnosticRateLimits = new Map();
-const teamUnlockSessions = new Map();
 const teamUnlockAttempts = new Map();
 
 if (!process.env.UKRAINE_APP_PASSWORD) {
@@ -126,12 +148,6 @@ setInterval(() => {
   for (const [ip, state] of diagnosticRateLimits.entries()) {
     if ((state.resetAt || 0) <= now) {
       diagnosticRateLimits.delete(ip);
-    }
-  }
-
-  for (const [token, expiresAt] of teamUnlockSessions.entries()) {
-    if (expiresAt <= now) {
-      teamUnlockSessions.delete(token);
     }
   }
 
@@ -974,25 +990,50 @@ function timingSafeEqualStrings(a, b) {
   return crypto.timingSafeEqual(bufferA, bufferB);
 }
 
+// Unlock tokens are stateless: `v1.<expiresAtMs>.<hmacHex>`, signed with a key
+// derived from TEAM_APP_PASSWORD. Nothing is stored server-side, so a restart
+// does not log anybody out, and rotating the password invalidates all of them.
+function makeTeamUnlockToken(expiresAt) {
+  const payload = `v1.${expiresAt}`;
+  const signature = crypto.createHmac('sha256', TEAM_UNLOCK_SECRET).update(payload).digest('hex');
+  return `${payload}.${signature}`;
+}
+
 function isTeamUnlocked(req) {
+  // Fail closed: with no password configured the derived secret is still a
+  // perfectly verifiable key, so anybody who knows the (public) scheme could
+  // mint a valid token. Refuse to unlock anything before looking at a
+  // signature at all.
+  if (!TEAM_PASSWORD) {
+    return false;
+  }
+
   const cookies = parseCookies(req);
   const token = cookies[TEAM_COOKIE_NAME];
 
-  if (!token) {
+  if (!token || typeof token !== 'string') {
     return false;
   }
 
-  const expiresAt = teamUnlockSessions.get(token);
-  if (!expiresAt) {
+  const parts = token.split('.');
+  if (parts.length !== 3 || parts[0] !== 'v1') {
     return false;
   }
 
-  if (expiresAt <= Date.now()) {
-    teamUnlockSessions.delete(token);
+  const expiresAt = Number(parts[1]);
+  if (!Number.isFinite(expiresAt) || !Number.isInteger(expiresAt) || expiresAt <= Date.now()) {
     return false;
   }
 
-  return true;
+  // Re-sign the exact claimed payload and compare; tampering with either the
+  // expiry or the signature changes the result, and only tokens this server
+  // minted (canonical decimal expiry) can ever verify.
+  const expected = crypto
+    .createHmac('sha256', TEAM_UNLOCK_SECRET)
+    .update(`v1.${parts[1]}`)
+    .digest('hex');
+
+  return timingSafeEqualStrings(parts[2], expected);
 }
 
 // The attempts map is keyed by client IP, which - even using the trusted last
@@ -1180,9 +1221,8 @@ function setupTeamGate(appName) {
 
     teamUnlockAttempts.delete(ip);
 
-    const token = crypto.randomBytes(24).toString('hex');
     const expiresAt = now + TEAM_UNLOCK_TTL_MS;
-    teamUnlockSessions.set(token, expiresAt);
+    const token = makeTeamUnlockToken(expiresAt);
 
     const maxAgeSec = Math.floor(TEAM_UNLOCK_TTL_MS / 1000);
     const cookieValue = `${TEAM_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secureFlag(req)}`;
@@ -1197,11 +1237,10 @@ function setupTeamGate(appName) {
   });
 
   app.post(`/${appName}/api/auth/logout`, (req, res) => {
-    const token = parseCookies(req)[TEAM_COOKIE_NAME];
-    if (token) {
-      teamUnlockSessions.delete(token);
-    }
-
+    // Unlock tokens are stateless, so logging out just clears this browser's
+    // cookie - there is no server-side revocation list, and a token that was
+    // copied elsewhere stays valid until it expires. To revoke everywhere,
+    // rotate TEAM_APP_PASSWORD (that changes the signing key).
     const cookieValue = `${TEAM_COOKIE_NAME}=; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag(req)}`;
     res.setHeader('Set-Cookie', cookieValue);
     res.json({ success: true });
