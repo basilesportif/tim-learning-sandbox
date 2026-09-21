@@ -1,14 +1,11 @@
 .flash-card {
-  /* The revealed name is a two-tier stack: a big first name with a smaller
-     last name under it for the two players who share a first name. Both tiers
-     are declared once here so the reserved slot below can be computed from
-     exactly the same numbers - that is what keeps the photo from resizing when
-     the answer appears. Media queries retune these two values, not the slot. */
+  /* The revealed name is a single line: the first name, and nothing else.
+     Its size and leading are declared once here so the reserved slot below can
+     be computed from exactly the same numbers - that is what keeps the photo
+     from resizing when the answer appears. Media queries retune this value,
+     not the slot. */
   --name-first-size: clamp(1.9rem, 7vw, 3.2rem);
   --name-first-leading: 1.05;
-  --name-last-size: clamp(1rem, 3.6vw, 1.5rem);
-  --name-last-leading: 1.15;
-  --name-gap: 2px;
 
   display: flex;
   flex-direction: column;
@@ -33,42 +30,23 @@
 }
 
 /* The answer's reserved space: blank before the reveal, so nothing shifts.
-   Tall enough for the full two-tier stack, so a one-line name (everybody but
-   the Ethans) leaves no visible gap and no jump either. */
+   Exactly one line of first name tall - the same height whether or not the
+   name is showing, so the reveal never moves the photo. */
 .flash-slot {
   flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: calc(
-    var(--name-first-size) * var(--name-first-leading) + var(--name-gap) +
-      var(--name-last-size) * var(--name-last-leading)
-  );
+  min-height: calc(var(--name-first-size) * var(--name-first-leading));
   text-align: center;
 }
 
 .flash-answer {
   margin: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--name-gap);
-}
-
-.flash-first {
   font-size: var(--name-first-size);
   font-weight: 900;
   line-height: var(--name-first-leading);
   color: #ffffff;
-}
-
-/* Second tier, only rendered when two players share a first name. Quieter than
-   the first name: it is a disambiguator, not the answer. */
-.flash-last {
-  font-size: var(--name-last-size);
-  font-weight: 600;
-  line-height: var(--name-last-leading);
-  color: #c7d2fe;
 }
 
 /* Spoken, not seen: colour alone should not be the only feedback. */
@@ -148,7 +126,6 @@
 @media (min-width: 700px) {
   .flash-card {
     --name-first-size: 3.2rem;
-    --name-last-size: 1.5rem;
     gap: 14px;
   }
 
@@ -178,13 +155,11 @@
   }
 }
 
-/* Short landscape: every tier shrinks against the viewport height, and the
-   reserved slot follows them down automatically. */
+/* Short landscape: the name shrinks against the viewport height, and the
+   reserved slot follows it down automatically. */
 @media (orientation: landscape) and (max-height: 560px) {
   .flash-card {
     --name-first-size: clamp(1.5rem, 8vh, 2.2rem);
-    --name-last-size: clamp(0.85rem, 3.4vh, 1.1rem);
-    --name-gap: 1px;
     gap: 8px;
   }
 

@@ -29,19 +29,22 @@ on a narrow portrait screen they stack underneath it.
 
 Space or Enter fires the big button in either mode.
 
-All 12 teammates come up once before anyone repeats, and the first card of a
+All 13 teammates come up once before anyone repeats, and the first card of a
 new round is never the player who just ended the previous one.
 
-Daniel is on the roster in `src/players.js` but marked `inDeck: false` - he
-knows his own name. Flip that one flag to `true` to deal him in.
+Daniel is dealt in with everybody else. Every player in `src/players.js` carries
+an `inDeck` flag, so anyone can be held out of the quiz by flipping their flag
+to `false`.
 
-Both Ethans (Eisner and Waldman) are in the deck, which is why their cards -
-and their choice buttons - show the last name too. On a flip card the answer is
-a two-tier stack: a big first name with the last name smaller and quieter
-underneath, and only for the players who need it. On a choice button it is one
-line. `needsLastName()` and `displayName()` in `src/players.js` are the single
-place that decides, so a choice button can never say something the answer
-would not.
+Every name in the app is the first name and nothing else - the revealed answer
+and the choice buttons alike. Both Ethans (Eisner and Waldman) are in the deck,
+so multiple choice can deal two buttons that both read "Ethan"; that is
+expected and deliberately left alone. Buttons are matched on the player, not
+the label, so on an Ethan card only that Ethan's own button turns green.
+`displayName()` in `src/players.js` is the single place that decides how a name
+is written, so a choice button can never say something the answer would not. On
+a flip card the reveal is one line, sitting in a slot already reserved at that
+height, so the photo never moves when the answer appears.
 
 The app itself has no backend and no login screen of its own - the only thing
 persisted is the mode switch. Access is gated by the sandbox server (see below).
@@ -74,7 +77,7 @@ it appear automatically, with zero code changes.
    raphael-cheney.jpg
    luca-del-rio.jpg
    ethan-eisner.jpg
-   daniel-galebach.jpg    (optional - only used if Daniel is dealt in)
+   daniel-galebach.jpg
    dylan-hersch.jpg
    isa-jafri.jpg
    naadir-khan.jpg

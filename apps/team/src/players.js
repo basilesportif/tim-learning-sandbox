@@ -1,14 +1,15 @@
 // Manhattan SC Independiente - Male U9 (WYSL Fall 2026).
 //
 // `slug` doubles as the photo filename: public/photos/<slug>.jpg
+// `last` is reference data - it backs the slugs and identifies who each kid
+// actually is - but it is never shown in the app; cards and choice buttons are
+// first name only.
 // `inDeck: false` keeps a player on the roster but out of the quiz.
 export const PLAYERS = [
   { slug: 'raphael-cheney', first: 'Raphael', last: 'Cheney', inDeck: true },
   { slug: 'luca-del-rio', first: 'Luca', last: 'Del Rio', inDeck: true },
   { slug: 'ethan-eisner', first: 'Ethan', last: 'Eisner', inDeck: true },
-  // Daniel already knows his own name, so he stays on the roster but out of
-  // the quiz. Flip `inDeck` to true to deal him in.
-  { slug: 'daniel-galebach', first: 'Daniel', last: 'Galebach', inDeck: false },
+  { slug: 'daniel-galebach', first: 'Daniel', last: 'Galebach', inDeck: true },
   { slug: 'dylan-hersch', first: 'Dylan', last: 'Hersch', inDeck: true },
   { slug: 'isa-jafri', first: 'Isa', last: 'Jafri', inDeck: true },
   { slug: 'naadir-khan', first: 'Naadir', last: 'Khan', inDeck: true },
@@ -23,21 +24,10 @@ export const PLAYERS = [
 // The players actually quizzed, in roster order. Shuffled per round.
 export const DECK = PLAYERS.filter((player) => player.inDeck);
 
-// How many deck players share each first name. The team has two Ethans
-// (Eisner and Waldman), so those cards must show a last name to be a fair
-// question; everyone else is unambiguous on their first name alone.
-const FIRST_NAME_COUNTS = DECK.reduce((counts, player) => {
-  counts[player.first] = (counts[player.first] || 0) + 1;
-  return counts;
-}, {});
-
-export function needsLastName(player) {
-  return FIRST_NAME_COUNTS[player.first] > 1;
-}
-
-// The one place that decides how a name is written. The revealed answer and
-// the multiple-choice buttons both go through here, so a choice button can
-// never say something the answer would not.
+// The one place that decides how a name is written: first name only, for
+// everybody, always. The revealed answer and the multiple-choice buttons both
+// go through here, so a choice button can never say something the answer would
+// not - including for the two Ethans, who simply both read "Ethan".
 export function displayName(player) {
-  return needsLastName(player) ? `${player.first} ${player.last}` : player.first;
+  return player.first;
 }

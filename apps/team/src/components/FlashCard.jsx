@@ -1,5 +1,5 @@
 import PlayerAvatar from './PlayerAvatar';
-import { displayName, needsLastName } from '../players';
+import { displayName } from '../players';
 import './FlashCard.css';
 
 // One card. The photo tile always takes whatever height is left over, and
@@ -49,16 +49,9 @@ function FlashCard({ player, revealed, choiceMode, choices, wrongSlugs, onChoose
       ) : (
         <div className="flash-slot" aria-live="polite">
           {revealed ? (
-            // Two tiers: the first name is the answer, the last name is only
-            // there to tell the two Ethans apart. Everyone else gets one line
-            // and no second tier at all - the slot is already reserved at the
-            // taller of the two shapes, so nothing shifts either way.
-            <p className="flash-answer">
-              <span className="flash-first">{player.first}</span>
-              {needsLastName(player) ? (
-                <span className="flash-last">{player.last}</span>
-              ) : null}
-            </p>
+            // One line, first name only, for everybody - the slot below is
+            // reserved at exactly this shape, so nothing shifts on reveal.
+            <p className="flash-answer">{displayName(player)}</p>
           ) : null}
         </div>
       )}
