@@ -1,0 +1,80 @@
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #f3f7f3;
+  color: #222;
+}
+
+.page {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+h1 { font-size: 1.6rem; margin: 8px 0 16px; }
+h2 { font-size: 1.2rem; margin: 24px 0 12px; }
+
+.card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.upload-form { display: flex; flex-direction: column; gap: 12px; }
+.upload-form label { display: flex; flex-direction: column; gap: 6px; font-weight: 600; }
+
+.upload-form input[type="text"],
+.upload-form input[type="file"] {
+  font-size: 1rem;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  background: #fff;
+  width: 100%;
+}
+
+.upload-form button {
+  font-size: 1.05rem;
+  padding: 12px;
+  border: 0;
+  border-radius: 8px;
+  background: #1f8a3b;
+  color: #fff;
+  cursor: pointer;
+}
+
+.upload-form button:disabled { background: #8bb897; cursor: default; }
+
+.progress { width: 100%; height: 10px; }
+.status { margin: 0; color: #555; }
+.error { margin: 0; color: #b00020; font-weight: 600; }
+
+.video-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 16px; }
+.video-item h3 { margin: 0 0 4px; font-size: 1.1rem; word-break: break-word; }
+.video-item time { display: block; color: #666; font-size: 0.9rem; margin-bottom: 10px; }
+
+.videos-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin: 24px 0 12px; }
+.videos-heading h2 { margin: 0; }
+.hotkeys-hint { margin: 0; font-size: 0.8rem; color: #666; }
+.hotkeys-hint kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 1px 5px;
+  border: 1px solid #ccc;
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: #fff;
+  font: inherit;
+  font-size: 0.75rem;
+  text-align: center;
+}
+
+/* Hotkeys need a keyboard; don't advertise them on touch-only devices. */
+@media (hover: none) and (pointer: coarse) {
+  .hotkeys-hint { display: none; }
+}
+
+.empty { color: #666; text-align: center; padding: 24px 8px; }

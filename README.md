@@ -178,6 +178,36 @@ curl -s -b jar -o /dev/null -w '%{http_code}\n' "$BASE/team/assets/<hashed>.js" 
 Mind the 5-attempt / 10-minute block while testing wrong passwords - it is keyed on
 the real client IP, so a few bad guesses from your laptop will lock your laptop out.
 
+### The `/soccer` Video App
+
+`/soccer` is a private place to upload and watch soccer videos. It uses the same
+server-side password gate as `/team` (both are built by `createPasswordGate` in
+`server/index.js`):
+
+- Set `SOCCER_APP_PASSWORD` in the server's `.env`. If it is unset, the app stays locked.
+- A correct password sets the `soccer_unlock` cookie (`Path=/soccer`, HttpOnly,
+  `SameSite=Lax`, `Secure` over HTTPS, 365-day TTL). It is a stateless HMAC token
+  signed with a key derived from the password, so it survives restarts, and rotating
+  the password revokes every cookie.
+- The rate limiting matches `/team`: 5 wrong attempts per trusted client IP trigger a
+  10-minute block.
+- Everything under `/soccer` except `/soccer/api/auth/{unlock,logout,status}` needs the
+  cookie. That covers the SPA, its assets, the API and the video files.
+
+API (all behind the gate):
+
+- `GET /soccer/api/videos` returns metadata, newest first.
+- `POST /soccer/api/videos` accepts multipart `title` (max 120 chars) and `video`
+  (`.mp4`/`.mov`/`.webm`/`.m4v` with a `video/*` mimetype, max 500 MB). Bad input gets a 4xx.
+- `DELETE /soccer/api/videos/:id` removes the file and its metadata.
+- `GET /soccer/videos/<id>.<ext>` streams the file with HTTP Range support, which iOS
+  Safari needs for seeking.
+
+Videos are stored as `apps/soccer/data/videos/<random id>.<ext>`, with metadata in
+`apps/soccer/data/videos/videos.json` (written atomically). That directory is
+git-ignored and `deploy.sh` never touches it, so uploads persist across deploys.
+Client filenames are never used on disk.
+
 ## Adding a New App
 
 1. Create new app in `apps/<app-name>/`

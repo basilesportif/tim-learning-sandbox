@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join, resolve, sep } from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
+import multer from 'multer';
 import { SOURCE_SYNC_DEFAULTS, syncGdlCandidates } from './ukraine_sources.js';
 import { setupVocabApiRoutes } from './vocab.js';
 
@@ -21,6 +22,7 @@ app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 const UKRAINE_APP_NAME = 'ukraine';
 const VOCAB_APP_NAME = 'vocab';
 const TEAM_APP_NAME = 'team';
+const SOCCER_APP_NAME = 'soccer';
 
 // ---------------------------------------------------------------------------
 // Temporarily disabled apps
@@ -42,9 +44,9 @@ const TEAM_APP_NAME = 'team';
 //        cd /root/pkg/tim-learning-sandbox && git pull --ff-only && pm2 restart tim-learning
 //      No rebuild is needed - the already-built apps/<app>/dist stays on the server.
 //
-// Note: /team is (and stays) password-gated by TEAM_APP_PASSWORD independently
-// of this list - see setupTeamGate below - so that must be set in the server
-// .env for anyone to get in.
+// Note: /team and /soccer are (and stay) password-gated by TEAM_APP_PASSWORD /
+// SOCCER_APP_PASSWORD independently of this list - see createPasswordGate
+// below - so those must be set in the server .env for anyone to get in.
 //
 // The DISABLED_APPS env var EXTENDS (never replaces) the default list, so an
 // app can also be taken offline without a code change, e.g.:
@@ -69,30 +71,28 @@ const UKRAINE_PARENT_PIN = process.env.UKRAINE_PARENT_PIN || '1111';
 const UKRAINE_PARENT_MAX_ATTEMPTS = 6;
 const UKRAINE_PARENT_BLOCK_MS = 10 * 60 * 1000;
 const UKRAINE_PARENT_TTL_MS = 12 * 60 * 60 * 1000;
-const TEAM_COOKIE_NAME = 'team_unlock';
-const TEAM_PASSWORD = process.env.TEAM_APP_PASSWORD || '';
-const TEAM_MAX_ATTEMPTS = 5;
-// teamUnlockAttempts is keyed on a remote-influenced string, so cap how many
-// distinct keys we are willing to remember (see rememberTeamUnlockAttempt).
-const TEAM_MAX_TRACKED_IPS = 5000;
-const TEAM_BLOCK_MS = 10 * 60 * 1000;
-// This is a low-stakes household kids' flashcard app and Tim asked for the
-// password to be remembered after a single successful entry, so an unlock
-// lasts a year on that browser instead of a week. The gate still keeps
-// strangers out, the brute-force rate limiting above is unchanged, and
-// rotating TEAM_APP_PASSWORD invalidates every outstanding unlock cookie
-// (see TEAM_UNLOCK_SECRET below).
-const TEAM_UNLOCK_TTL_MS = 365 * 24 * 60 * 60 * 1000;
-// Unlock cookies are stateless HMAC-signed tokens (see makeTeamUnlockToken /
-// isTeamUnlocked) rather than random ids in an in-memory map, so an unlock
+// Shared by the /team and /soccer password gates (see createPasswordGate).
+const PASSWORD_GATE_MAX_ATTEMPTS = 5;
+// Each gate's attempts map is keyed on a remote-influenced string, so cap how
+// many distinct keys we are willing to remember (see rememberUnlockAttempt).
+const PASSWORD_GATE_MAX_TRACKED_IPS = 5000;
+const PASSWORD_GATE_BLOCK_MS = 10 * 60 * 1000;
+// These are low-stakes household kids' apps and Tim asked for the password to
+// be remembered after a single successful entry, so an unlock lasts a year on
+// that browser instead of a week. The gate still keeps strangers out, the
+// brute-force rate limiting above is unchanged, and rotating the app's password
+// invalidates every outstanding unlock cookie (see unlockSecret in
+// createPasswordGate).
+const PASSWORD_GATE_UNLOCK_TTL_MS = 365 * 24 * 60 * 60 * 1000;
+// Unlock cookies are stateless HMAC-signed tokens (see makeUnlockToken /
+// isUnlocked) rather than random ids in an in-memory map, so an unlock
 // survives a pm2 restart or a reboot instead of silently re-prompting
 // everybody on every deploy.
 //
 // The signing key is DERIVED FROM THE PASSWORD on purpose: there is no extra
-// env var or state file to manage, and changing TEAM_APP_PASSWORD changes the
-// key, which instantly invalidates every cookie that was issued under the old
+// env var or state file to manage, and changing the password changes the key,
+// which instantly invalidates every cookie that was issued under the old
 // password. Password rotation is the revocation story.
-const TEAM_UNLOCK_SECRET = crypto.createHash('sha256').update(`team-unlock:v1:${TEAM_PASSWORD}`).digest();
 const DIAGNOSTIC_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
 const DIAGNOSTIC_DEFAULT_MAX_USES = 1;
 const DIAGNOSTIC_RATE_WINDOW_MS = 15 * 60 * 1000;
@@ -106,16 +106,14 @@ const unlockAttempts = new Map();
 const parentSessions = new Map();
 const parentAttempts = new Map();
 const diagnosticRateLimits = new Map();
-const teamUnlockAttempts = new Map();
+// One attempts map per password gate; swept by the interval below.
+const passwordGateAttemptMaps = [];
 
 if (!process.env.UKRAINE_APP_PASSWORD) {
   console.warn('[ukraine] UKRAINE_APP_PASSWORD is not set. Using development fallback password.');
 }
 if (!process.env.UKRAINE_PARENT_PIN) {
   console.warn('[ukraine] UKRAINE_PARENT_PIN is not set. Using development fallback PIN.');
-}
-if (!process.env.TEAM_APP_PASSWORD) {
-  console.warn('[team] TEAM_APP_PASSWORD is not set. The /team app will stay locked for everyone until it is set in .env.');
 }
 
 setInterval(() => {
@@ -151,9 +149,11 @@ setInterval(() => {
     }
   }
 
-  for (const [ip, state] of teamUnlockAttempts.entries()) {
-    if ((state.blockedUntil || 0) <= now && (state.lastFailureAt || 0) + TEAM_BLOCK_MS <= now) {
-      teamUnlockAttempts.delete(ip);
+  for (const attempts of passwordGateAttemptMaps) {
+    for (const [ip, state] of attempts.entries()) {
+      if ((state.blockedUntil || 0) <= now && (state.lastFailureAt || 0) + PASSWORD_GATE_BLOCK_MS <= now) {
+        attempts.delete(ip);
+      }
     }
   }
 }, 60 * 1000).unref();
@@ -264,7 +264,11 @@ function parseCookies(req) {
     if (index <= 0) continue;
     const key = trimmed.slice(0, index);
     const value = trimmed.slice(index + 1);
-    cookies[key] = decodeURIComponent(value);
+    try {
+      cookies[key] = decodeURIComponent(value);
+    } catch {
+      // Malformed percent-encoding: skip this cookie rather than 500.
+    }
   }
 
   return cookies;
@@ -959,15 +963,21 @@ function requireUkraineParent(req, res, next) {
 }
 
 // ---------------------------------------------------------------------------
-// /team password gate
+// Password gates (/team, /soccer)
 //
 // Unlike /ukraine (whose login screen lives inside its React bundle and whose
 // secrets only come back from the API), the team app's secret content - the
 // real kids' names baked into dist/assets/*.js and their face photos in
-// dist/photos/*.jpg - is served as plain static files. So the gate has to sit
-// in front of express.static and the SPA fallback, not just in front of the
-// API. The login page is rendered here, server-side, so that unlocking never
-// requires rebuilding apps/team/dist (prod does not rebuild on deploy).
+// dist/photos/*.jpg - is served as plain static files, and the soccer app
+// serves uploaded family videos. So each gate has to sit in front of
+// express.static and the SPA fallback, not just in front of the API. The login
+// page is rendered here, server-side, so that unlocking never requires
+// rebuilding apps/<app>/dist.
+//
+// createPasswordGate() below holds the whole scheme; each gated app just gets
+// its own env var, cookie name, signing-key label and attempts map. /team's
+// behavior (cookie `team_unlock`, key label `team-unlock:v1:`, messages) is
+// exactly what it was before this was generalized.
 // ---------------------------------------------------------------------------
 
 function escapeHtml(value) {
@@ -990,98 +1000,111 @@ function timingSafeEqualStrings(a, b) {
   return crypto.timingSafeEqual(bufferA, bufferB);
 }
 
-// Unlock tokens are stateless: `v1.<expiresAtMs>.<hmacHex>`, signed with a key
-// derived from TEAM_APP_PASSWORD. Nothing is stored server-side, so a restart
-// does not log anybody out, and rotating the password invalidates all of them.
-function makeTeamUnlockToken(expiresAt) {
-  const payload = `v1.${expiresAt}`;
-  const signature = crypto.createHmac('sha256', TEAM_UNLOCK_SECRET).update(payload).digest('hex');
-  return `${payload}.${signature}`;
-}
+function createPasswordGate({ appName, title, envVar, cookieName, secretLabel }) {
+  const password = process.env[envVar] || '';
+  // The signing key is DERIVED FROM THE PASSWORD on purpose - see the comment
+  // on PASSWORD_GATE_UNLOCK_TTL_MS above.
+  const unlockSecret = crypto.createHash('sha256').update(`${secretLabel}:${password}`).digest();
+  const attempts = new Map();
+  passwordGateAttemptMaps.push(attempts);
 
-function isTeamUnlocked(req) {
-  // Fail closed: with no password configured the derived secret is still a
-  // perfectly verifiable key, so anybody who knows the (public) scheme could
-  // mint a valid token. Refuse to unlock anything before looking at a
-  // signature at all.
-  if (!TEAM_PASSWORD) {
-    return false;
+  if (!password) {
+    console.warn(`[${appName}] ${envVar} is not set. The /${appName} app will stay locked for everyone until it is set in .env.`);
   }
 
-  const cookies = parseCookies(req);
-  const token = cookies[TEAM_COOKIE_NAME];
-
-  if (!token || typeof token !== 'string') {
-    return false;
+  // Unlock tokens are stateless: `v1.<expiresAtMs>.<hmacHex>`, signed with a
+  // key derived from the app's password. Nothing is stored server-side, so a
+  // restart does not log anybody out, and rotating the password invalidates
+  // all of them.
+  function makeUnlockToken(expiresAt) {
+    const payload = `v1.${expiresAt}`;
+    const signature = crypto.createHmac('sha256', unlockSecret).update(payload).digest('hex');
+    return `${payload}.${signature}`;
   }
 
-  const parts = token.split('.');
-  if (parts.length !== 3 || parts[0] !== 'v1') {
-    return false;
-  }
-
-  const expiresAt = Number(parts[1]);
-  if (!Number.isFinite(expiresAt) || !Number.isInteger(expiresAt) || expiresAt <= Date.now()) {
-    return false;
-  }
-
-  // Re-sign the exact claimed payload and compare; tampering with either the
-  // expiry or the signature changes the result, and only tokens this server
-  // minted (canonical decimal expiry) can ever verify.
-  const expected = crypto
-    .createHmac('sha256', TEAM_UNLOCK_SECRET)
-    .update(`v1.${parts[1]}`)
-    .digest('hex');
-
-  return timingSafeEqualStrings(parts[2], expected);
-}
-
-// The attempts map is keyed by client IP, which - even using the trusted last
-// X-Forwarded-For entry - an attacker with a botnet can still vary. Bound the
-// map so it can never grow without limit: once it is full, drop the
-// least-recently-inserted entry (Map iterates in insertion order) to make room.
-function rememberTeamUnlockAttempt(ip, state) {
-  if (!teamUnlockAttempts.has(ip) && teamUnlockAttempts.size >= TEAM_MAX_TRACKED_IPS) {
-    const oldest = teamUnlockAttempts.keys().next().value;
-    if (oldest !== undefined) {
-      teamUnlockAttempts.delete(oldest);
+  function isUnlocked(req) {
+    // Fail closed: with no password configured the derived secret is still a
+    // perfectly verifiable key, so anybody who knows the (public) scheme could
+    // mint a valid token. Refuse to unlock anything before looking at a
+    // signature at all.
+    if (!password) {
+      return false;
     }
+
+    const cookies = parseCookies(req);
+    const token = cookies[cookieName];
+
+    if (!token || typeof token !== 'string') {
+      return false;
+    }
+
+    const parts = token.split('.');
+    if (parts.length !== 3 || parts[0] !== 'v1') {
+      return false;
+    }
+
+    const expiresAt = Number(parts[1]);
+    if (!Number.isFinite(expiresAt) || !Number.isInteger(expiresAt) || expiresAt <= Date.now()) {
+      return false;
+    }
+
+    // Re-sign the exact claimed payload and compare; tampering with either the
+    // expiry or the signature changes the result, and only tokens this server
+    // minted (canonical decimal expiry) can ever verify.
+    const expected = crypto
+      .createHmac('sha256', unlockSecret)
+      .update(`v1.${parts[1]}`)
+      .digest('hex');
+
+    return timingSafeEqualStrings(parts[2], expected);
   }
 
-  teamUnlockAttempts.set(ip, state);
-}
+  // The attempts map is keyed by client IP, which - even using the trusted last
+  // X-Forwarded-For entry - an attacker with a botnet can still vary. Bound the
+  // map so it can never grow without limit: once it is full, drop the
+  // least-recently-inserted entry (Map iterates in insertion order) to make room.
+  function rememberUnlockAttempt(ip, state) {
+    if (!attempts.has(ip) && attempts.size >= PASSWORD_GATE_MAX_TRACKED_IPS) {
+      const oldest = attempts.keys().next().value;
+      if (oldest !== undefined) {
+        attempts.delete(oldest);
+      }
+    }
 
-// Only same-origin paths inside the team app are accepted, so the login form's
-// `next` field can never be used as an open redirect.
-function sanitizeTeamNextPath(value) {
-  const fallback = `/${TEAM_APP_NAME}/`;
-  const raw = typeof value === 'string' ? value.trim() : '';
+    attempts.set(ip, state);
+  }
 
-  if (!raw || !raw.startsWith('/')) {
+  // Only same-origin paths inside the app are accepted, so the login form's
+  // `next` field can never be used as an open redirect.
+  function sanitizeNextPath(value) {
+    const fallback = `/${appName}/`;
+    const raw = typeof value === 'string' ? value.trim() : '';
+
+    if (!raw || !raw.startsWith('/')) {
+      return fallback;
+    }
+
+    if (raw.startsWith('//') || raw.includes('\\')) {
+      return fallback;
+    }
+
+    if (raw === `/${appName}` || raw.startsWith(`/${appName}/`)) {
+      return raw;
+    }
+
     return fallback;
   }
 
-  if (raw.startsWith('//') || raw.includes('\\')) {
-    return fallback;
-  }
+  function renderLoginPage({ error = '', next = '' } = {}) {
+    const safeNext = escapeHtml(sanitizeNextPath(next));
+    const errorBlock = error ? `<p class="error">${escapeHtml(error)}</p>` : '';
 
-  if (raw === `/${TEAM_APP_NAME}` || raw.startsWith(`/${TEAM_APP_NAME}/`)) {
-    return raw;
-  }
-
-  return fallback;
-}
-
-function renderTeamLoginPage({ error = '', next = '' } = {}) {
-  const safeNext = escapeHtml(sanitizeTeamNextPath(next));
-  const errorBlock = error ? `<p class="error">${escapeHtml(error)}</p>` : '';
-
-  return `<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Team Flashcards</title>
+  <title>${escapeHtml(title)}</title>
   <style>
     body { font-family: system-ui, sans-serif; max-width: 420px; margin: 60px auto; padding: 20px; color: #333; }
     h1 { color: #333; font-size: 1.5em; }
@@ -1094,10 +1117,10 @@ function renderTeamLoginPage({ error = '', next = '' } = {}) {
   </style>
 </head>
 <body>
-  <h1>Team Flashcards</h1>
+  <h1>${escapeHtml(title)}</h1>
   <p class="hint">This app is password protected.</p>
   ${errorBlock}
-  <form method="POST" action="/${TEAM_APP_NAME}/api/auth/unlock">
+  <form method="POST" action="/${appName}/api/auth/unlock">
     <input type="hidden" name="next" value="${safeNext}">
     <input type="password" name="password" placeholder="Password" autocomplete="current-password" autofocus>
     <button type="submit">Unlock</button>
@@ -1105,190 +1128,479 @@ function renderTeamLoginPage({ error = '', next = '' } = {}) {
 </body>
 </html>
 `;
-}
+  }
 
-function setupTeamGate(appName) {
-  // Routes that are allowed through the gate unauthenticated. These three are
-  // registered BEFORE the gate middleware so they never actually reach it; the
-  // list is an exact allowlist rather than an `/api/auth/` prefix match so that
-  // unknown paths like /team/api/auth/bogus (or /team//api/auth/x) cannot slip
-  // past the gate into the SPA fallback.
-  const OPEN_PATHS = new Set(['/api/auth/unlock', '/api/auth/logout', '/api/auth/status']);
+  function setup() {
+    // Routes that are allowed through the gate unauthenticated. These three are
+    // registered BEFORE the gate middleware so they never actually reach it; the
+    // list is an exact allowlist rather than an `/api/auth/` prefix match so that
+    // unknown paths like /team/api/auth/bogus (or /team//api/auth/x) cannot slip
+    // past the gate into the SPA fallback.
+    const OPEN_PATHS = new Set(['/api/auth/unlock', '/api/auth/logout', '/api/auth/status']);
 
-  // prod does NOT set NODE_ENV, so keying `Secure` off NODE_ENV alone shipped the
-  // cookie without it over HTTPS. Behind Caddy the request arrives as plain HTTP
-  // with X-Forwarded-Proto: https, so check that too. Plain-HTTP localhost dev
-  // still gets a cookie it can actually use.
-  const isHttpsRequest = (req) => {
-    if (req.secure) {
-      return true;
-    }
-
-    const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
-    return proto === 'https';
-  };
-
-  const secureFlag = (req) => (isHttpsRequest(req) || process.env.NODE_ENV === 'production' ? '; Secure' : '');
-
-  // Browsers posting the server-rendered form get redirects + HTML back;
-  // fetch()/curl callers sending JSON get JSON back.
-  const isFormPost = (req) => {
-    if (req.is('application/x-www-form-urlencoded')) {
-      return true;
-    }
-
-    if (typeof req.body?.next === 'string') {
-      return true;
-    }
-
-    const accept = String(req.headers.accept || '');
-    return accept.includes('text/html') && !accept.includes('application/json');
-  };
-
-  app.post(`/${appName}/api/auth/unlock`, (req, res) => {
-    // Deliberately the trusted (last) XFF entry, not getClientIp(): otherwise a
-    // fresh spoofed X-Forwarded-For per request buys unlimited password guesses.
-    const ip = getTrustedClientIp(req);
-    const now = Date.now();
-    const state = teamUnlockAttempts.get(ip) || { failures: 0, blockedUntil: 0, lastFailureAt: 0 };
-    const formPost = isFormPost(req);
-    const nextPath = sanitizeTeamNextPath(req.body?.next);
-
-    const sendLoginPage = (status, message) => {
-      res.status(status);
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.setHeader('Cache-Control', 'no-store');
-      res.send(renderTeamLoginPage({ error: message, next: nextPath }));
-    };
-
-    const sendRateLimited = (retryAfterSec) => {
-      if (formPost) {
-        const minutes = Math.max(1, Math.ceil(retryAfterSec / 60));
-        sendLoginPage(429, `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`);
-        return;
+    // prod does NOT set NODE_ENV, so keying `Secure` off NODE_ENV alone shipped the
+    // cookie without it over HTTPS. Behind Caddy the request arrives as plain HTTP
+    // with X-Forwarded-Proto: https, so check that too. Plain-HTTP localhost dev
+    // still gets a cookie it can actually use.
+    const isHttpsRequest = (req) => {
+      if (req.secure) {
+        return true;
       }
 
-      res.status(429).json({ error: 'rate_limited', retry_after_sec: retryAfterSec });
+      const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+      return proto === 'https';
     };
 
-    if (state.blockedUntil > now) {
-      sendRateLimited(Math.ceil((state.blockedUntil - now) / 1000));
-      return;
-    }
+    const secureFlag = (req) => (isHttpsRequest(req) || process.env.NODE_ENV === 'production' ? '; Secure' : '');
 
-    const submittedPassword = typeof req.body?.password === 'string' ? req.body.password : '';
-    const configured = TEAM_PASSWORD.length > 0;
-    const passwordOk = configured
-      && submittedPassword.length > 0
-      && timingSafeEqualStrings(submittedPassword, TEAM_PASSWORD);
-
-    if (!passwordOk) {
-      state.failures += 1;
-      state.lastFailureAt = now;
-
-      if (state.failures >= TEAM_MAX_ATTEMPTS) {
-        state.failures = 0;
-        state.blockedUntil = now + TEAM_BLOCK_MS;
-        rememberTeamUnlockAttempt(ip, state);
-        sendRateLimited(Math.ceil(TEAM_BLOCK_MS / 1000));
-        return;
+    // Browsers posting the server-rendered form get redirects + HTML back;
+    // fetch()/curl callers sending JSON get JSON back.
+    const isFormPost = (req) => {
+      if (req.is('application/x-www-form-urlencoded')) {
+        return true;
       }
 
-      rememberTeamUnlockAttempt(ip, state);
+      if (typeof req.body?.next === 'string') {
+        return true;
+      }
 
-      // Fail closed: with no TEAM_APP_PASSWORD configured, nothing unlocks.
-      if (!configured) {
+      const accept = String(req.headers.accept || '');
+      return accept.includes('text/html') && !accept.includes('application/json');
+    };
+
+    const notConfiguredMessage = `Password is not configured on the server (set ${envVar} in .env)`;
+
+    app.post(`/${appName}/api/auth/unlock`, (req, res) => {
+      // Deliberately the trusted (last) XFF entry, not getClientIp(): otherwise a
+      // fresh spoofed X-Forwarded-For per request buys unlimited password guesses.
+      const ip = getTrustedClientIp(req);
+      const now = Date.now();
+      const state = attempts.get(ip) || { failures: 0, blockedUntil: 0, lastFailureAt: 0 };
+      const formPost = isFormPost(req);
+      const nextPath = sanitizeNextPath(req.body?.next);
+
+      const sendLoginPage = (status, message) => {
+        res.status(status);
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.send(renderLoginPage({ error: message, next: nextPath }));
+      };
+
+      const sendRateLimited = (retryAfterSec) => {
         if (formPost) {
-          sendLoginPage(401, 'Password is not configured on the server (set TEAM_APP_PASSWORD in .env)');
+          const minutes = Math.max(1, Math.ceil(retryAfterSec / 60));
+          sendLoginPage(429, `Too many attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}.`);
           return;
         }
 
-        res.status(401).json({
-          error: 'not_configured',
-          message: 'Password is not configured on the server (set TEAM_APP_PASSWORD in .env)',
+        res.status(429).json({ error: 'rate_limited', retry_after_sec: retryAfterSec });
+      };
+
+      if (state.blockedUntil > now) {
+        sendRateLimited(Math.ceil((state.blockedUntil - now) / 1000));
+        return;
+      }
+
+      const submittedPassword = typeof req.body?.password === 'string' ? req.body.password : '';
+      const configured = password.length > 0;
+      const passwordOk = configured
+        && submittedPassword.length > 0
+        && timingSafeEqualStrings(submittedPassword, password);
+
+      if (!passwordOk) {
+        state.failures += 1;
+        state.lastFailureAt = now;
+
+        if (state.failures >= PASSWORD_GATE_MAX_ATTEMPTS) {
+          state.failures = 0;
+          state.blockedUntil = now + PASSWORD_GATE_BLOCK_MS;
+          rememberUnlockAttempt(ip, state);
+          sendRateLimited(Math.ceil(PASSWORD_GATE_BLOCK_MS / 1000));
+          return;
+        }
+
+        rememberUnlockAttempt(ip, state);
+
+        // Fail closed: with no password configured, nothing unlocks.
+        if (!configured) {
+          if (formPost) {
+            sendLoginPage(401, notConfiguredMessage);
+            return;
+          }
+
+          res.status(401).json({
+            error: 'not_configured',
+            message: notConfiguredMessage,
+          });
+          return;
+        }
+
+        if (formPost) {
+          sendLoginPage(401, 'Incorrect password.');
+          return;
+        }
+
+        res.status(401).json({ error: 'invalid_password', attempts_remaining: PASSWORD_GATE_MAX_ATTEMPTS - state.failures });
+        return;
+      }
+
+      attempts.delete(ip);
+
+      const expiresAt = now + PASSWORD_GATE_UNLOCK_TTL_MS;
+      const token = makeUnlockToken(expiresAt);
+
+      const maxAgeSec = Math.floor(PASSWORD_GATE_UNLOCK_TTL_MS / 1000);
+      const cookieValue = `${cookieName}=${encodeURIComponent(token)}; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secureFlag(req)}`;
+      res.setHeader('Set-Cookie', cookieValue);
+
+      if (formPost) {
+        res.redirect(302, nextPath);
+        return;
+      }
+
+      res.json({ success: true, unlocked_until: new Date(expiresAt).toISOString() });
+    });
+
+    app.post(`/${appName}/api/auth/logout`, (req, res) => {
+      // Unlock tokens are stateless, so logging out just clears this browser's
+      // cookie - there is no server-side revocation list, and a token that was
+      // copied elsewhere stays valid until it expires. To revoke everywhere,
+      // rotate the app's password env var (that changes the signing key).
+      const cookieValue = `${cookieName}=; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag(req)}`;
+      res.setHeader('Set-Cookie', cookieValue);
+      res.json({ success: true });
+    });
+
+    app.get(`/${appName}/api/auth/status`, (req, res) => {
+      res.json({ unlocked: isUnlocked(req) });
+    });
+
+    // Everything else under /<appName> - static assets, photos, videos, the SPA
+    // fallback and the app's API routes - is locked until the cookie is present.
+    app.use(`/${appName}`, (req, res, next) => {
+      // Express routes case-insensitively, so /Team/ reaches this gate (no bypass),
+      // but browsers match the cookie's `Path=/team` case-SENSITIVELY - a visitor
+      // who unlocks and then hits /Team/ would send no cookie and be stuck on the
+      // login page forever. Bounce them to the canonical lowercase path. The
+      // redirect target always starts with the exact lowercase prefix, so it can
+      // never bounce back here a second time.
+      const originalUrl = String(req.originalUrl || `/${appName}/`);
+      const matchedPrefix = originalUrl.slice(0, appName.length + 1);
+      if (matchedPrefix !== `/${appName}`) {
+        res.redirect(301, `/${appName}${originalUrl.slice(appName.length + 1)}`);
+        return;
+      }
+
+      if (OPEN_PATHS.has(req.path)) {
+        next();
+        return;
+      }
+
+      if (isUnlocked(req)) {
+        next();
+        return;
+      }
+
+      if (req.method === 'GET' || req.method === 'HEAD') {
+        const requestedPath = String(req.originalUrl || `/${appName}/`).split('?')[0];
+        res.status(401);
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-store');
+        res.send(renderLoginPage({ next: requestedPath }));
+        return;
+      }
+
+      res.status(401).json({ error: 'locked' });
+    });
+  }
+
+  return { appName, isUnlocked, setup };
+}
+
+const PASSWORD_GATES = new Map([
+  [TEAM_APP_NAME, createPasswordGate({
+    appName: TEAM_APP_NAME,
+    title: 'Team Flashcards',
+    envVar: 'TEAM_APP_PASSWORD',
+    cookieName: 'team_unlock',
+    secretLabel: 'team-unlock:v1',
+  })],
+  [SOCCER_APP_NAME, createPasswordGate({
+    appName: SOCCER_APP_NAME,
+    title: 'Soccer Videos',
+    envVar: 'SOCCER_APP_PASSWORD',
+    cookieName: 'soccer_unlock',
+    secretLabel: 'soccer-unlock:v1',
+  })],
+]);
+
+// ---------------------------------------------------------------------------
+// /soccer video uploads
+//
+// Everything registered here sits BEHIND the soccer password gate (the gate
+// middleware is registered first, see the app mount loop below). Videos live
+// in apps/soccer/data/videos/ (git-ignored, and deploy.sh only cleans dist/ and
+// lockfiles, so they persist across deploys). Metadata is a JSON array in
+// apps/soccer/data/videos/videos.json, written atomically (tmp + rename).
+// Client filenames are never used in any path: every stored file is named
+// `<random id>.<allowed ext>` by the server.
+// ---------------------------------------------------------------------------
+
+const SOCCER_VIDEO_MAX_BYTES = 500 * 1024 * 1024;
+const SOCCER_VIDEO_TITLE_MAX = 120;
+const SOCCER_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'webm', 'm4v']);
+const SOCCER_VIDEO_FILENAME_PATTERN = /^[a-zA-Z0-9_-]+\.(mp4|mov|webm|m4v)$/;
+const SOCCER_VIDEO_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+// Explicit Content-Type per extension rather than relying on send/mime
+// inference (which would give .m4v "video/x-m4v"). Videos are served as-is
+// (no transcoding), so the container type is all the browser gets.
+const SOCCER_VIDEO_CONTENT_TYPES = {
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+};
+
+function setupSoccerApiRoutes(appName, dataPath) {
+  const videosDir = join(dataPath, 'videos');
+  const incomingDir = join(videosDir, '.incoming');
+  const metadataPath = join(videosDir, 'videos.json');
+  fs.mkdirSync(incomingDir, { recursive: true });
+
+  // Anything left in .incoming is from an upload that died mid-flight
+  // (e.g. a crash); nothing references it, so clear it on boot.
+  for (const leftover of fs.readdirSync(incomingDir)) {
+    fs.rmSync(join(incomingDir, leftover), { force: true, recursive: true });
+  }
+
+  const readVideos = () => asArray(readJson(metadataPath, []));
+
+  const writeVideosAtomic = (videos) => {
+    const tmpPath = join(videosDir, `.videos.json.${process.pid}.${crypto.randomBytes(6).toString('hex')}.tmp`);
+    fs.writeFileSync(tmpPath, JSON.stringify(videos, null, 2));
+    fs.renameSync(tmpPath, metadataPath);
+  };
+
+  // Serialize read-modify-write cycles on the metadata file.
+  let metadataQueue = Promise.resolve();
+  const withMetadataLock = (fn) => {
+    const run = metadataQueue.then(fn);
+    metadataQueue = run.catch(() => {});
+    return run;
+  };
+
+  const extensionOf = (name) => {
+    const match = /\.([a-z0-9]+)$/i.exec(String(name || ''));
+    return match ? match[1].toLowerCase() : '';
+  };
+
+  // Resolve a stored video file strictly by a validated server-generated name,
+  // and confirm it stays inside videosDir.
+  const resolveVideoFile = (filename) => {
+    if (typeof filename !== 'string' || !SOCCER_VIDEO_FILENAME_PATTERN.test(filename)) {
+      return null;
+    }
+
+    const resolvedRoot = resolve(videosDir);
+    const resolvedFile = resolve(videosDir, filename);
+    if (!resolvedFile.startsWith(resolvedRoot + sep)) {
+      return null;
+    }
+
+    return resolvedFile;
+  };
+
+  const removeQuietly = (filePath) => {
+    if (!filePath) return;
+    fs.rm(filePath, { force: true }, () => {});
+  };
+
+  const upload = multer({
+    storage: multer.diskStorage({
+      destination: incomingDir,
+      // Random temp name; the client's filename never touches the filesystem.
+      filename: (_req, _file, cb) => cb(null, `${crypto.randomBytes(16).toString('hex')}.part`),
+    }),
+    limits: {
+      fileSize: SOCCER_VIDEO_MAX_BYTES,
+      files: 1,
+      fields: 5,
+      fieldSize: 4 * 1024,
+      parts: 10,
+    },
+    fileFilter: (req, file, cb) => {
+      const ext = extensionOf(file.originalname);
+      const mimetype = String(file.mimetype || '').toLowerCase();
+      if (!SOCCER_VIDEO_EXTENSIONS.has(ext) || !mimetype.startsWith('video/')) {
+        req.soccerUploadRejected = true;
+        cb(null, false);
+        return;
+      }
+      cb(null, true);
+    },
+  }).single('video');
+
+  const toPublicVideo = (video) => ({
+    ...video,
+    url: `/${appName}/videos/${video.filename}`,
+  });
+
+  app.get(`/${appName}/api/videos`, (_req, res) => {
+    const videos = readVideos()
+      .filter((video) => video && typeof video.filename === 'string' && SOCCER_VIDEO_FILENAME_PATTERN.test(video.filename))
+      .sort((a, b) => String(b.uploadedAt).localeCompare(String(a.uploadedAt)))
+      .map(toPublicVideo);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json(videos);
+  });
+
+  app.post(`/${appName}/api/videos`, (req, res) => {
+    upload(req, res, async (error) => {
+      const tempPath = req.file?.path || null;
+
+      if (error) {
+        removeQuietly(tempPath);
+        if (error.name === 'MulterError') {
+          const tooLarge = error.code === 'LIMIT_FILE_SIZE';
+          res.status(tooLarge ? 413 : 400).json({
+            error: tooLarge ? 'file_too_large' : 'bad_upload',
+            message: tooLarge ? 'Video is too large (max 500 MB).' : 'Upload could not be read.',
+          });
+          return;
+        }
+        console.error('[soccer] upload failed', error?.stack || error);
+        res.status(400).json({ error: 'bad_upload', message: 'Upload could not be read.' });
+        return;
+      }
+
+      if (req.soccerUploadRejected) {
+        removeQuietly(tempPath);
+        res.status(415).json({
+          error: 'unsupported_type',
+          message: 'Only video files (.mp4, .mov, .webm, .m4v) can be uploaded.',
         });
         return;
       }
 
-      if (formPost) {
-        sendLoginPage(401, 'Incorrect password.');
+      if (!req.file) {
+        res.status(400).json({ error: 'missing_file', message: 'Choose a video file to upload.' });
         return;
       }
 
-      res.status(401).json({ error: 'invalid_password', attempts_remaining: TEAM_MAX_ATTEMPTS - state.failures });
-      return;
-    }
+      const title = typeof req.body?.title === 'string' ? req.body.title.replace(/\s+/g, ' ').trim() : '';
+      if (!title) {
+        removeQuietly(tempPath);
+        res.status(400).json({ error: 'missing_title', message: 'Give the video a title.' });
+        return;
+      }
+      if (title.length > SOCCER_VIDEO_TITLE_MAX) {
+        removeQuietly(tempPath);
+        res.status(400).json({ error: 'title_too_long', message: `Title must be at most ${SOCCER_VIDEO_TITLE_MAX} characters.` });
+        return;
+      }
 
-    teamUnlockAttempts.delete(ip);
+      if (!req.file.size) {
+        removeQuietly(tempPath);
+        res.status(400).json({ error: 'empty_file', message: 'The video file is empty.' });
+        return;
+      }
 
-    const expiresAt = now + TEAM_UNLOCK_TTL_MS;
-    const token = makeTeamUnlockToken(expiresAt);
+      const id = crypto.randomBytes(12).toString('base64url');
+      const ext = extensionOf(req.file.originalname);
+      const filename = `${id}.${ext}`;
+      const finalPath = resolveVideoFile(filename);
 
-    const maxAgeSec = Math.floor(TEAM_UNLOCK_TTL_MS / 1000);
-    const cookieValue = `${TEAM_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secureFlag(req)}`;
-    res.setHeader('Set-Cookie', cookieValue);
-
-    if (formPost) {
-      res.redirect(302, nextPath);
-      return;
-    }
-
-    res.json({ success: true, unlocked_until: new Date(expiresAt).toISOString() });
+      try {
+        const record = await withMetadataLock(() => {
+          fs.renameSync(tempPath, finalPath);
+          const entry = {
+            id,
+            title,
+            filename,
+            uploadedAt: nowIso(),
+            size: req.file.size,
+            mimetype: String(req.file.mimetype).toLowerCase(),
+          };
+          try {
+            writeVideosAtomic([...readVideos(), entry]);
+          } catch (writeError) {
+            removeQuietly(finalPath);
+            throw writeError;
+          }
+          return entry;
+        });
+        res.status(201).json(toPublicVideo(record));
+      } catch (saveError) {
+        removeQuietly(tempPath);
+        console.error('[soccer] failed to store upload', saveError?.stack || saveError);
+        res.status(500).json({ error: 'server_error', message: 'Could not save the video.' });
+      }
+    });
   });
 
-  app.post(`/${appName}/api/auth/logout`, (req, res) => {
-    // Unlock tokens are stateless, so logging out just clears this browser's
-    // cookie - there is no server-side revocation list, and a token that was
-    // copied elsewhere stays valid until it expires. To revoke everywhere,
-    // rotate TEAM_APP_PASSWORD (that changes the signing key).
-    const cookieValue = `${TEAM_COOKIE_NAME}=; Path=/${appName}; HttpOnly; SameSite=Lax; Max-Age=0${secureFlag(req)}`;
-    res.setHeader('Set-Cookie', cookieValue);
-    res.json({ success: true });
+  app.delete(`/${appName}/api/videos/:id`, async (req, res) => {
+    const { id } = req.params;
+    if (typeof id !== 'string' || !SOCCER_VIDEO_ID_PATTERN.test(id)) {
+      res.status(400).json({ error: 'invalid_id' });
+      return;
+    }
+
+    try {
+      const removed = await withMetadataLock(() => {
+        const videos = readVideos();
+        const target = videos.find((video) => video && video.id === id);
+        if (!target) {
+          return null;
+        }
+        writeVideosAtomic(videos.filter((video) => video !== target));
+        const filePath = resolveVideoFile(target.filename);
+        if (filePath) {
+          fs.rmSync(filePath, { force: true });
+        }
+        return target;
+      });
+
+      if (!removed) {
+        res.status(404).json({ error: 'not_found' });
+        return;
+      }
+      res.json({ success: true });
+    } catch (deleteError) {
+      console.error('[soccer] failed to delete video', deleteError?.stack || deleteError);
+      res.status(500).json({ error: 'server_error' });
+    }
   });
 
-  app.get(`/${appName}/api/auth/status`, (req, res) => {
-    res.json({ unlocked: isTeamUnlocked(req) });
+  // Video bytes. res.sendFile handles Range / 206 / Accept-Ranges, which iOS
+  // Safari needs before it will play or seek a <video>.
+  app.get(`/${appName}/videos/:filename`, (req, res) => {
+    const filePath = resolveVideoFile(req.params.filename);
+    if (!filePath || !fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+
+    // send() only infers a type when Content-Type is unset, so this wins.
+    res.sendFile(filePath, {
+      dotfiles: 'deny',
+      headers: {
+        'Content-Type': SOCCER_VIDEO_CONTENT_TYPES[extensionOf(filePath)] || 'application/octet-stream',
+        'Cache-Control': 'private, max-age=3600',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    }, (sendError) => {
+      if (sendError && !res.headersSent) {
+        res.status(sendError.status || 404).json({ error: 'not_found' });
+      }
+    });
   });
 
-  // Everything else under /<appName> - static assets, photos, the SPA fallback
-  // and the generic /api/data routes - is locked until the cookie is present.
-  app.use(`/${appName}`, (req, res, next) => {
-    // Express routes case-insensitively, so /Team/ reaches this gate (no bypass),
-    // but browsers match the cookie's `Path=/team` case-SENSITIVELY - a visitor
-    // who unlocks and then hits /Team/ would send no cookie and be stuck on the
-    // login page forever. Bounce them to the canonical lowercase path. The
-    // redirect target always starts with the exact lowercase prefix, so it can
-    // never bounce back here a second time.
-    const originalUrl = String(req.originalUrl || `/${appName}/`);
-    const matchedPrefix = originalUrl.slice(0, appName.length + 1);
-    if (matchedPrefix !== `/${appName}`) {
-      res.redirect(301, `/${appName}${originalUrl.slice(appName.length + 1)}`);
-      return;
-    }
-
-    if (OPEN_PATHS.has(req.path)) {
-      next();
-      return;
-    }
-
-    if (isTeamUnlocked(req)) {
-      next();
-      return;
-    }
-
-    if (req.method === 'GET' || req.method === 'HEAD') {
-      const requestedPath = String(req.originalUrl || `/${appName}/`).split('?')[0];
-      res.status(401);
-      res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.setHeader('Cache-Control', 'no-store');
-      res.send(renderTeamLoginPage({ next: requestedPath }));
-      return;
-    }
-
-    res.status(401).json({ error: 'locked' });
+  // Anything else under /soccer/videos/ or /soccer/api/ (bad names, traversal
+  // attempts, unknown endpoints) is a 404 rather than the SPA fallback.
+  app.use([`/${appName}/videos`, `/${appName}/api`], (_req, res) => {
+    res.status(404).json({ error: 'not_found' });
   });
 }
-
 
 function setupUkraineApiRoutes(appName, dataPath) {
   const ruTextsPath = join(dataPath, 'texts.ru.json');
@@ -2432,15 +2744,19 @@ fs.readdirSync(appsDir).forEach((appName) => {
     fs.mkdirSync(dataPath, { recursive: true });
   }
 
-  // Must run before any /team route (API, static, SPA fallback) is registered.
-  if (appName === TEAM_APP_NAME) {
-    setupTeamGate(appName);
+  // Must run before any gated route (API, static, SPA fallback) is registered.
+  const passwordGate = PASSWORD_GATES.get(appName);
+  if (passwordGate) {
+    passwordGate.setup();
   }
 
   if (appName === UKRAINE_APP_NAME) {
     setupUkraineApiRoutes(appName, dataPath);
   } else if (appName === VOCAB_APP_NAME) {
     setupVocabApiRoutes(app, appName, dataPath);
+  } else if (appName === SOCCER_APP_NAME) {
+    // Soccer has its own video API and no generic /api/data routes.
+    setupSoccerApiRoutes(appName, dataPath);
   } else {
     // Generic API routes for simple app data persistence
     app.get(`/${appName}/api/data/:file`, (req, res) => {

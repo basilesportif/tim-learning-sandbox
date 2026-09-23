@@ -6,3 +6,6 @@ secrets/
 # Don't ignore data files - they're the DB
 # But do ignore any local dev data
 apps/*/data/*.local.json
+
+# Uploaded soccer videos + their metadata live only on the server
+apps/soccer/data/videos/
