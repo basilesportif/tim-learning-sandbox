@@ -4,7 +4,7 @@ const SKIP_SECONDS = 5
 
 // Hotkeys stay out of the way while the user is typing or using a native
 // control that needs the keys. Range inputs (the player's volume slider) are
-// allowed so J/K/Space keep working after nudging the volume.
+// allowed so J/K/L/Space keep working after nudging the volume.
 function isTypingTarget(target) {
   if (!(target instanceof HTMLElement)) return false
   if (target.isContentEditable) return true
@@ -18,7 +18,7 @@ function isTypingTarget(target) {
  *  - only one plays at a time (starting one pauses the rest)
  *  - page-level hotkeys drive the "active" player: the last one interacted
  *    with or played, defaulting to the first in `ids`
- *      Space = play/pause, J = back 5s, K = forward 5s
+ *      Space / K = play/pause, J = back 5s, L = forward 5s
  */
 export function usePlayerGroup(ids) {
   const videos = useRef(new Map())
@@ -62,7 +62,7 @@ export function usePlayerGroup(ids) {
 
       const isSpace = event.key === ' ' || event.code === 'Space'
       const key = event.key.toLowerCase()
-      if (!isSpace && key !== 'j' && key !== 'k') return
+      if (!isSpace && key !== 'j' && key !== 'k' && key !== 'l') return
 
       // A focused button/link already activates on Space natively (e.g. the
       // player's own play button); handling it here too would double-toggle.
@@ -72,7 +72,7 @@ export function usePlayerGroup(ids) {
       if (!video) return
       event.preventDefault()
 
-      if (isSpace) {
+      if (isSpace || key === 'k') {
         if (video.paused || video.ended) {
           video.play().catch(() => {})
         } else {

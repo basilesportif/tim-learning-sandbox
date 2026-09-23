@@ -1344,6 +1344,17 @@ const PASSWORD_GATES = new Map([
 // apps/soccer/data/videos/videos.json, written atomically (tmp + rename).
 // Client filenames are never used in any path: every stored file is named
 // `<random id>.<allowed ext>` by the server.
+//
+// Share links are the ONE exception to the gate (setupSoccerPublicRoutes,
+// registered before the gate middleware). A video gets a `shareToken` - a
+// separate random value, never its id or filename - only when someone who is
+// unlocked asks for a share link. The token unlocks exactly that one video:
+//   GET /soccer/watch/<token>        the SPA shell, which renders a lone player
+//   GET /soccer/api/share/<token>    { title, uploadedAt, url } for that video
+//   GET /soccer/share/<token>/video  the video bytes (Range-capable)
+//   GET /soccer/assets/*             Vite's JS/CSS bundle (no secret data in it;
+//                                    videos and the list only come from the API)
+// Deleting the video deletes its record, which revokes the link.
 // ---------------------------------------------------------------------------
 
 const SOCCER_VIDEO_MAX_BYTES = 500 * 1024 * 1024;
@@ -1351,6 +1362,8 @@ const SOCCER_VIDEO_TITLE_MAX = 120;
 const SOCCER_VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'webm', 'm4v']);
 const SOCCER_VIDEO_FILENAME_PATTERN = /^[a-zA-Z0-9_-]+\.(mp4|mov|webm|m4v)$/;
 const SOCCER_VIDEO_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+// crypto.randomBytes(24).toString('base64url') is always exactly 32 chars.
+const SOCCER_SHARE_TOKEN_PATTERN = /^[A-Za-z0-9_-]{32}$/;
 // Explicit Content-Type per extension rather than relying on send/mime
 // inference (which would give .m4v "video/x-m4v"). Videos are served as-is
 // (no transcoding), so the container type is all the browser gets.
@@ -1361,7 +1374,8 @@ const SOCCER_VIDEO_CONTENT_TYPES = {
   webm: 'video/webm',
 };
 
-function setupSoccerApiRoutes(appName, dataPath) {
+// File + metadata helpers shared by the public share routes and the gated API.
+function createSoccerVideoStore(dataPath) {
   const videosDir = join(dataPath, 'videos');
   const incomingDir = join(videosDir, '.incoming');
   const metadataPath = join(videosDir, 'videos.json');
@@ -1414,6 +1428,160 @@ function setupSoccerApiRoutes(appName, dataPath) {
     if (!filePath) return;
     fs.rm(filePath, { force: true }, () => {});
   };
+
+  // Stream a stored video. res.sendFile handles Range / 206 / Accept-Ranges,
+  // which iOS Safari needs before it will play or seek a <video>.
+  const sendVideoFile = (res, filename) => {
+    const filePath = resolveVideoFile(filename);
+    if (!filePath || !fs.existsSync(filePath)) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+
+    // send() only infers a type when Content-Type is unset, so this wins.
+    res.sendFile(filePath, {
+      dotfiles: 'deny',
+      headers: {
+        'Content-Type': SOCCER_VIDEO_CONTENT_TYPES[extensionOf(filePath)] || 'application/octet-stream',
+        'Cache-Control': 'private, max-age=3600',
+        'X-Content-Type-Options': 'nosniff',
+      },
+    }, (sendError) => {
+      if (sendError && !res.headersSent) {
+        res.status(sendError.status || 404).json({ error: 'not_found' });
+      }
+    });
+  };
+
+  // Only a strictly well-formed token is ever compared against the metadata.
+  const findVideoByShareToken = (token) => {
+    if (typeof token !== 'string' || !SOCCER_SHARE_TOKEN_PATTERN.test(token)) {
+      return null;
+    }
+
+    const video = readVideos().find((entry) => entry
+      && typeof entry.shareToken === 'string'
+      && timingSafeEqualStrings(entry.shareToken, token));
+    if (!video || typeof video.filename !== 'string' || !SOCCER_VIDEO_FILENAME_PATTERN.test(video.filename)) {
+      return null;
+    }
+
+    return video;
+  };
+
+  return {
+    videosDir,
+    incomingDir,
+    readVideos,
+    writeVideosAtomic,
+    withMetadataLock,
+    extensionOf,
+    resolveVideoFile,
+    removeQuietly,
+    sendVideoFile,
+    findVideoByShareToken,
+  };
+}
+
+// UNGATED. Must be registered BEFORE the soccer password gate middleware.
+// Each route is an exact Express pattern whose :token segment cannot contain
+// '/', and every token is checked against SOCCER_SHARE_TOKEN_PATTERN before it
+// is looked up, so nothing here can reach another video, the list, or the
+// filename route. Anything else under these prefixes is a flat 404.
+function setupSoccerPublicRoutes(appName, store, distPath) {
+  const sharedVideoPath = (token) => `/${appName}/share/${token}/video`;
+
+  const sendNotFoundPage = (res) => {
+    res.status(404);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video not found</title>
+  <style>body { font-family: system-ui, sans-serif; max-width: 420px; margin: 60px auto; padding: 20px; color: #333; }</style>
+</head>
+<body>
+  <h1>Video not found</h1>
+  <p>This link is invalid or the video has been removed.</p>
+</body>
+</html>
+`);
+  };
+
+  app.get(`/${appName}/watch/:token`, (req, res) => {
+    const indexPath = join(distPath, 'index.html');
+    if (!store.findVideoByShareToken(req.params.token) || !fs.existsSync(indexPath)) {
+      sendNotFoundPage(res);
+      return;
+    }
+
+    res.sendFile(indexPath, {
+      headers: {
+        'Cache-Control': 'no-store',
+        // Keep the token out of Referer headers and search indexes.
+        'Referrer-Policy': 'no-referrer',
+        'X-Robots-Tag': 'noindex, nofollow',
+      },
+    });
+  });
+
+  app.get(`/${appName}/api/share/:token`, (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    const video = store.findVideoByShareToken(req.params.token);
+    if (!video) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+
+    // Deliberately an allowlist: no id, filename, size or other videos.
+    res.json({
+      title: String(video.title || ''),
+      uploadedAt: video.uploadedAt,
+      url: sharedVideoPath(req.params.token),
+    });
+  });
+
+  app.get(`/${appName}/share/:token/video`, (req, res) => {
+    const video = store.findVideoByShareToken(req.params.token);
+    if (!video) {
+      res.status(404).json({ error: 'not_found' });
+      return;
+    }
+
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    store.sendVideoFile(res, video.filename);
+  });
+
+  app.use([`/${appName}/watch`, `/${appName}/share`, `/${appName}/api/share`], (_req, res) => {
+    res.status(404).json({ error: 'not_found' });
+  });
+
+  // The built JS/CSS bundle, so the watch page can boot without the cookie.
+  // It holds only app code - no titles, filenames or tokens. express.static
+  // rejects `..` (raw or encoded) with 403 and cannot leave dist/assets; a miss
+  // falls through to the gate. No directory listing (serve-static never lists).
+  app.use(`/${appName}/assets`, express.static(join(distPath, 'assets'), {
+    index: false,
+    redirect: false,
+    dotfiles: 'deny',
+  }));
+}
+
+function setupSoccerApiRoutes(appName, store) {
+  const {
+    incomingDir,
+    readVideos,
+    writeVideosAtomic,
+    withMetadataLock,
+    extensionOf,
+    resolveVideoFile,
+    removeQuietly,
+    sendVideoFile,
+  } = store;
 
   const upload = multer({
     storage: multer.diskStorage({
@@ -1571,28 +1739,45 @@ function setupSoccerApiRoutes(appName, dataPath) {
     }
   });
 
-  // Video bytes. res.sendFile handles Range / 206 / Accept-Ranges, which iOS
-  // Safari needs before it will play or seek a <video>.
-  app.get(`/${appName}/videos/:filename`, (req, res) => {
-    const filePath = resolveVideoFile(req.params.filename);
-    if (!filePath || !fs.existsSync(filePath)) {
-      res.status(404).json({ error: 'not_found' });
+  // Create (or return the existing) share token for one video. Idempotent, so
+  // a link that was already handed out keeps working.
+  app.post(`/${appName}/api/videos/:id/share`, async (req, res) => {
+    const { id } = req.params;
+    if (typeof id !== 'string' || !SOCCER_VIDEO_ID_PATTERN.test(id)) {
+      res.status(400).json({ error: 'invalid_id' });
       return;
     }
 
-    // send() only infers a type when Content-Type is unset, so this wins.
-    res.sendFile(filePath, {
-      dotfiles: 'deny',
-      headers: {
-        'Content-Type': SOCCER_VIDEO_CONTENT_TYPES[extensionOf(filePath)] || 'application/octet-stream',
-        'Cache-Control': 'private, max-age=3600',
-        'X-Content-Type-Options': 'nosniff',
-      },
-    }, (sendError) => {
-      if (sendError && !res.headersSent) {
-        res.status(sendError.status || 404).json({ error: 'not_found' });
+    try {
+      const shareToken = await withMetadataLock(() => {
+        const videos = readVideos();
+        const target = videos.find((video) => video && video.id === id);
+        if (!target) {
+          return null;
+        }
+        if (typeof target.shareToken === 'string' && SOCCER_SHARE_TOKEN_PATTERN.test(target.shareToken)) {
+          return target.shareToken;
+        }
+        const token = crypto.randomBytes(24).toString('base64url');
+        writeVideosAtomic(videos.map((video) => (video === target ? { ...video, shareToken: token } : video)));
+        return token;
+      });
+
+      if (!shareToken) {
+        res.status(404).json({ error: 'not_found' });
+        return;
       }
-    });
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ shareToken, path: `/${appName}/watch/${shareToken}` });
+    } catch (shareError) {
+      console.error('[soccer] failed to create share link', shareError?.stack || shareError);
+      res.status(500).json({ error: 'server_error' });
+    }
+  });
+
+  // Video bytes (Range-capable, see sendVideoFile).
+  app.get(`/${appName}/videos/:filename`, (req, res) => {
+    sendVideoFile(res, req.params.filename);
   });
 
   // Anything else under /soccer/videos/ or /soccer/api/ (bad names, traversal
@@ -2744,6 +2929,12 @@ fs.readdirSync(appsDir).forEach((appName) => {
     fs.mkdirSync(dataPath, { recursive: true });
   }
 
+  // /soccer share links are public on purpose, so they go in front of the gate.
+  const soccerStore = appName === SOCCER_APP_NAME ? createSoccerVideoStore(dataPath) : null;
+  if (soccerStore) {
+    setupSoccerPublicRoutes(appName, soccerStore, distPath);
+  }
+
   // Must run before any gated route (API, static, SPA fallback) is registered.
   const passwordGate = PASSWORD_GATES.get(appName);
   if (passwordGate) {
@@ -2756,7 +2947,7 @@ fs.readdirSync(appsDir).forEach((appName) => {
     setupVocabApiRoutes(app, appName, dataPath);
   } else if (appName === SOCCER_APP_NAME) {
     // Soccer has its own video API and no generic /api/data routes.
-    setupSoccerApiRoutes(appName, dataPath);
+    setupSoccerApiRoutes(appName, soccerStore);
   } else {
     // Generic API routes for simple app data persistence
     app.get(`/${appName}/api/data/:file`, (req, res) => {

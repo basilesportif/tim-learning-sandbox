@@ -53,3 +53,29 @@ export function uploadVideo({ title, file, onProgress }) {
     xhr.send(form)
   })
 }
+
+// Gated: returns { shareToken, path } (creates the token on first use).
+export async function createShareLink(id) {
+  const res = await fetch(`${API}/videos/${encodeURIComponent(id)}/share`, {
+    method: 'POST',
+    credentials: 'same-origin',
+  })
+  if (res.status === 401) {
+    throw new Error('Locked. Reload the page and enter the password.')
+  }
+  if (!res.ok) {
+    throw new Error(await readError(res, 'Could not create a share link.'))
+  }
+  return res.json()
+}
+
+// Public: { title, uploadedAt, url } for one shared video, or null if the
+// link is invalid / the video was deleted.
+export async function getSharedVideo(token) {
+  const res = await fetch(`${API}/share/${encodeURIComponent(token)}`, { credentials: 'omit' })
+  if (res.status === 404) return null
+  if (!res.ok) {
+    throw new Error(await readError(res, 'Could not load the video.'))
+  }
+  return res.json()
+}

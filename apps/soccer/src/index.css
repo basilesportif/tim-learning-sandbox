@@ -78,3 +78,26 @@ h2 { font-size: 1.2rem; margin: 24px 0 12px; }
 }
 
 .empty { color: #666; text-align: center; padding: 24px 8px; }
+
+.share { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.share-button {
+  align-self: flex-start;
+  font-size: 0.95rem;
+  padding: 8px 14px;
+  border: 1px solid #1f8a3b;
+  border-radius: 8px;
+  background: #fff;
+  color: #1f8a3b;
+  cursor: pointer;
+}
+.share-button:disabled { opacity: 0.6; cursor: default; }
+.share-fallback { display: flex; flex-direction: column; gap: 4px; font-size: 0.9rem; color: #555; }
+.share-fallback input {
+  font-size: 0.9rem;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  width: 100%;
+}
+
+.watch-hint { margin-top: 10px; }
