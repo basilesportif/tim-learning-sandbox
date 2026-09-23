@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { fullscreenElement, toggleFullscreen as toggleFullscreenFor } from '../lib/fullscreen.js'
 import './VideoPlayer.css'
 
 const HIDE_CONTROLS_AFTER_MS = 2500
@@ -22,10 +23,6 @@ function bufferedEnd(video) {
     if (buffered.start(i) <= currentTime + 0.5) end = Math.max(end, buffered.end(i))
   }
   return end
-}
-
-function fullscreenElement() {
-  return document.fullscreenElement || document.webkitFullscreenElement || null
 }
 
 const Icon = {
@@ -141,23 +138,7 @@ export default function VideoPlayer({ src, label, onActivate, onPlay, registerVi
   }
 
   function toggleFullscreen() {
-    const container = containerRef.current
-    const video = videoRef.current
-    if (!container || !video) return
-
-    if (fullscreenElement()) {
-      const exit = document.exitFullscreen || document.webkitExitFullscreen
-      exit?.call(document)?.catch?.(() => {})
-      return
-    }
-
-    const request = container.requestFullscreen || container.webkitRequestFullscreen
-    if (request) {
-      request.call(container)?.catch?.(() => {})
-    } else if (video.webkitEnterFullscreen) {
-      // iPhone Safari: only the <video> itself can go fullscreen (native UI).
-      video.webkitEnterFullscreen()
-    }
+    toggleFullscreenFor(containerRef.current, videoRef.current)
   }
 
   // Seek bar scrubbing via pointer events (mouse, pen and touch alike).

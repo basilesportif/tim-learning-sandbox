@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react'
+import { toggleFullscreen } from './fullscreen.js'
 
 const SKIP_SECONDS = 5
 
@@ -18,7 +19,7 @@ function isTypingTarget(target) {
  *  - only one plays at a time (starting one pauses the rest)
  *  - page-level hotkeys drive the "active" player: the last one interacted
  *    with or played, defaulting to the first in `ids`
- *      Space / K = play/pause, J = back 5s, L = forward 5s
+ *      Space / K = play/pause, J = back 5s, L = forward 5s, F = fullscreen
  */
 export function usePlayerGroup(ids) {
   const videos = useRef(new Map())
@@ -62,7 +63,7 @@ export function usePlayerGroup(ids) {
 
       const isSpace = event.key === ' ' || event.code === 'Space'
       const key = event.key.toLowerCase()
-      if (!isSpace && key !== 'j' && key !== 'k' && key !== 'l') return
+      if (!isSpace && !['j', 'k', 'l', 'f'].includes(key)) return
 
       // A focused button/link already activates on Space natively (e.g. the
       // player's own play button); handling it here too would double-toggle.
@@ -71,6 +72,13 @@ export function usePlayerGroup(ids) {
       const video = activeVideo()
       if (!video) return
       event.preventDefault()
+
+      if (key === 'f') {
+        // Fullscreen the player container (VideoPlayer root) so the custom
+        // controls come along; exits if already fullscreen.
+        toggleFullscreen(video.closest('.vp'), video)
+        return
+      }
 
       if (isSpace || key === 'k') {
         if (video.paused || video.ended) {
