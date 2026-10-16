@@ -3,7 +3,8 @@ import About from './components/About';
 import CountryFilter from './components/CountryFilter';
 import FlashCard from './components/FlashCard';
 import teams from './data/teams.json';
-import { drawTeam, filterTeams, getStorage, loadStats, recordResult, saveStats } from './lib/deck';
+import { drawTeam, filterTeams, getStorage } from './lib/deck';
+import { createStatsSync } from './lib/sync';
 import './App.css';
 
 // A fast double-tap on Got it / Missed it would otherwise land on the Reveal
@@ -12,14 +13,15 @@ const GRADE_GUARD_MS = 400;
 
 // An endless stream of cards: each one is a weighted random draw (see
 // lib/deck.js), so teams that were missed more come up more often. Reloading
-// the page starts with a fresh random card; per-team stats live in
-// localStorage and carry over.
+// the page starts with a fresh random card; the answer history is synced to
+// the server (data/stats.json) with localStorage as the offline cache.
 function initialState() {
-  const storage = getStorage();
-  const stats = loadStats(storage);
+  // No network or listeners until sync.start() in an effect.
+  const sync = createStatsSync({ storage: getStorage(), baseUrl: import.meta.env.BASE_URL });
+  const stats = sync.getStats();
 
   return {
-    storage,
+    sync,
     stats,
     country: 'All',
     team: drawTeam(filterTeams(teams, 'All'), stats),
@@ -32,7 +34,7 @@ function App() {
   const [revealed, setRevealed] = useState(false);
   const gradedAt = useRef(-Infinity);
 
-  const { country, team, seen } = state;
+  const { country, team, seen, sync } = state;
   const stage = revealed ? 'grade' : 'reveal';
 
   const handleCountry = useCallback((next) => {
@@ -47,10 +49,12 @@ function App() {
     setRevealed(false);
   }, []);
 
-  const handleGrade = useCallback((got) => {
+  // Recorded outside the state updater so StrictMode's double-invoke can't
+  // record an answer twice.
+  const handleGrade = (got) => {
     gradedAt.current = performance.now();
+    const stats = sync.record(team.slug, got);
     setState((current) => {
-      const stats = recordResult(current.stats, current.team.slug, got);
       return {
         ...current,
         stats,
@@ -59,12 +63,18 @@ function App() {
       };
     });
     setRevealed(false);
-  }, []);
+  };
 
-  // Persist outside the state updater so StrictMode's double-invoke is harmless.
+  // Pull the server history, upload anything pending, and keep flushing on
+  // pagehide / reconnect. Answers from other devices update the weights.
   useEffect(() => {
-    saveStats(state.storage, state.stats);
-  }, [state.storage, state.stats]);
+    const unsubscribe = sync.subscribe((stats) => setState((current) => ({ ...current, stats })));
+    sync.start();
+    return () => {
+      unsubscribe();
+      sync.stop();
+    };
+  }, [sync]);
 
   const handleReveal = () => {
     if (performance.now() - gradedAt.current >= GRADE_GUARD_MS) setRevealed(true);

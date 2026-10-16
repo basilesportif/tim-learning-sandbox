@@ -1,18 +1,19 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  RECENT_WINDOW,
+  MIN_WEIGHT,
+  REVIEW_INTERVALS_MS,
   STATS_KEY,
   UNSEEN_WEIGHT,
   drawTeam,
   filterTeams,
   getStorage,
-  loadStats,
-  recordResult,
+  loadLegacyStats,
+  reviewState,
   sanitizeStats,
-  saveStats,
   teamWeight,
 } from './deck.js'
+import { deriveStats } from './history.js'
 import { formatPopulation, initials, sourceLabel } from './format.js'
 
 const TEAMS = [
@@ -25,6 +26,11 @@ const TEAMS = [
   { slug: 'g', country: 'Italy' },
 ]
 
+const MIN = 60 * 1000
+const HOUR = 60 * MIN
+const DAY = 24 * HOUR
+const T0 = Date.parse('2026-10-01T12:00:00Z')
+
 const slugs = (list) => list.map((team) => team.slug)
 
 // A small seeded generator so draws are repeatable in tests.
@@ -36,10 +42,17 @@ function seeded(seed) {
   }
 }
 
-// Record a sequence of answers ('g' / 'm') for one team.
-function play(stats, slug, answers) {
-  return [...answers].reduce((acc, answer, i) => recordResult(acc, slug, answer === 'g', 1000 + i), stats)
+// Answer events for one team ('g' / 'm'), one minute apart from `start`.
+function answers(slug, results, start = T0, step = MIN) {
+  return [...results].map((r, i) => ({
+    id: `t-${slug}-${start + i * step}-${i}`,
+    slug,
+    at: new Date(start + i * step).toISOString(),
+    got: r === 'g',
+  }))
 }
+
+const statOf = (slug, results, start, step) => deriveStats(answers(slug, results, start, step))[slug]
 
 // In-memory stand-in for window.localStorage.
 function memoryStorage(initial = {}) {
@@ -58,57 +71,76 @@ test('filter by country', () => {
   assert.equal(filterTeams(TEAMS, 'All').length, TEAMS.length)
 })
 
-test('unseen teams get a nonzero default weight', () => {
-  assert.equal(teamWeight(undefined), UNSEEN_WEIGHT)
-  assert.equal(teamWeight({ attempts: 0, misses: 0, gots: 0, recent: [] }), UNSEEN_WEIGHT)
-  assert.ok(UNSEEN_WEIGHT > 0)
+test('unseen teams get a healthy nonzero default weight', () => {
+  assert.equal(teamWeight(undefined, T0), UNSEEN_WEIGHT)
+  assert.equal(teamWeight({ attempts: 0, misses: 0, gots: 0, recent: [] }, T0), UNSEEN_WEIGHT)
+  assert.ok(UNSEEN_WEIGHT > 1)
 })
 
-test('weight grows with miss rate and never drops below 1', () => {
+test('weight grows with miss rate (same timing) and stays above zero', () => {
+  const later = T0 + 30 * DAY // everything long overdue, old misses faded
   const rates = ['ggggg', 'mgggg', 'gmgmg', 'mmmgg', 'mmmmg', 'mmmmm']
-  const weights = rates.map((answers) => teamWeight(play({}, 'x', answers).x))
+  const weights = rates.map((r) => teamWeight(statOf('x', r), later))
   for (let i = 1; i < weights.length; i += 1) {
     assert.ok(weights[i] >= weights[i - 1], `weights not monotonic: ${weights}`)
   }
-  assert.equal(weights[0], 1)
-  assert.ok(weights.every((w) => w >= 1))
-  // Always missed is about 5x as likely as always got.
-  assert.equal(weights.at(-1) / weights[0], 5)
+  assert.ok(weights.at(-1) > 3 * weights[0])
+  assert.ok(weights.every((w) => w >= MIN_WEIGHT))
 })
 
-test('a run of Got it decays an old miss back to the base weight', () => {
-  let stats = play({}, 'x', 'mmm')
-  const high = teamWeight(stats.x)
-  stats = play(stats, 'x', 'gg')
-  const lower = teamWeight(stats.x)
-  stats = play(stats, 'x', 'ggg')
-  assert.ok(high > lower && lower > 1)
-  assert.equal(teamWeight(stats.x), 1)
-  assert.equal(stats.x.attempts, 8)
-  assert.equal(stats.x.recent.length, RECENT_WINDOW)
+test('just missed > due > not yet due, all above zero', () => {
+  const now = T0 + 10 * DAY
+  const justMissed = statOf('a', 'm', now - MIN)
+  const due = statOf('b', 'g', now - 2 * DAY) // got once, 1-day interval, 1 day overdue
+  const notDue = statOf('c', 'g', now - HOUR) // got once an hour ago
+  const [wm, wd, wn] = [justMissed, due, notDue].map((s) => teamWeight(s, now))
+  assert.ok(wm > wd && wd > wn && wn > 0, `${wm} ${wd} ${wn}`)
+  assert.ok(wn < UNSEEN_WEIGHT && wd < UNSEEN_WEIGHT * 2)
 })
 
-test('recordResult counts answers without mutating its input', () => {
-  const before = {}
-  const after = recordResult(before, 'a', false, 42)
-  assert.deepEqual(before, {})
-  assert.deepEqual(after.a, { attempts: 1, misses: 1, gots: 0, lastSeen: 42, recent: ['m'] })
-  const again = recordResult(after, 'a', true, 43)
-  assert.deepEqual(again.a, { attempts: 2, misses: 1, gots: 1, lastSeen: 43, recent: ['m', 'g'] })
+test('a recent miss boost decays over hours and days', () => {
+  const stat = statOf('a', 'gm', T0)
+  const w = [1, 12, 24, 72, 240].map((h) => teamWeight(stat, T0 + h * HOUR))
+  for (let i = 1; i < w.length; i += 1) assert.ok(w[i] < w[i - 1], `not decaying: ${w}`)
+  assert.ok(w[0] - w.at(-1) > 3, `boost too small: ${w}`)
+})
+
+test('overdue weight grows with how overdue, up to a cap', () => {
+  const stat = statOf('a', 'mggg', T0) // streak 3 -> 7-day interval
+  const { dueAt, intervalMs } = reviewState(stat, T0)
+  assert.equal(intervalMs, 7 * DAY)
+  const before = teamWeight(stat, dueAt - HOUR)
+  const at = teamWeight(stat, dueAt + 1)
+  const week = teamWeight(stat, dueAt + 7 * DAY)
+  const month = teamWeight(stat, dueAt + 21 * DAY)
+  assert.ok(before < at && at < week && week < month, `${before} ${at} ${week} ${month}`)
+  assert.equal(teamWeight(stat, dueAt + 100 * DAY), teamWeight(stat, dueAt + 200 * DAY))
+})
+
+test('review interval grows with the Got it streak and resets on a miss', () => {
+  const intervals = ['m', 'mg', 'mgg', 'mggg', 'mgggg', 'mggggg'].map((r) => reviewState(statOf('a', r), T0).intervalMs)
+  assert.deepEqual(intervals, [10 * MIN, DAY, 3 * DAY, 7 * DAY, 21 * DAY, 21 * DAY])
+  assert.deepEqual(REVIEW_INTERVALS_MS, [10 * MIN, DAY, 3 * DAY, 7 * DAY, 21 * DAY])
+  const reset = statOf('a', 'mggggm')
+  assert.equal(reset.streak, 0)
+  assert.equal(reviewState(reset, T0).intervalMs, 10 * MIN)
+  // Due date counts from the last answer.
+  const last = T0 + 5 * MIN
+  assert.equal(reviewState(reset, T0).dueAt, last + 10 * MIN)
 })
 
 test('drawTeam never repeats the card just shown', () => {
   const random = seeded(11)
   let previous = null
   for (let i = 0; i < 500; i += 1) {
-    const team = drawTeam(TEAMS, {}, { excludeSlug: previous, random })
+    const team = drawTeam(TEAMS, {}, { excludeSlug: previous, random, now: T0 })
     assert.notEqual(team.slug, previous)
     previous = team.slug
   }
-  // Even when the previous card is heavily weighted.
-  const stats = play({}, 'a', 'mmmmm')
+  // Even when the previous card is heavily weighted (just missed).
+  const stats = deriveStats(answers('a', 'mmmmm', T0))
   for (let seed = 1; seed < 200; seed += 1) {
-    assert.notEqual(drawTeam(TEAMS, stats, { excludeSlug: 'a', random: seeded(seed) }).slug, 'a')
+    assert.notEqual(drawTeam(TEAMS, stats, { excludeSlug: 'a', random: seeded(seed), now: T0 + 10 * MIN }).slug, 'a')
   }
 })
 
@@ -121,25 +153,26 @@ test('a one-team filter keeps showing that team', () => {
 test('drawTeam respects the country filter', () => {
   const random = seeded(5)
   const italy = filterTeams(TEAMS, 'Italy')
-  const stats = play({}, 'a', 'mmmmm') // a Spanish team with a huge weight
+  const stats = deriveStats(answers('a', 'mmmmm', T0)) // a Spanish team with a huge weight
   for (let i = 0; i < 300; i += 1) {
-    assert.equal(drawTeam(italy, stats, { random }).country, 'Italy')
+    assert.equal(drawTeam(italy, stats, { random, now: T0 + HOUR }).country, 'Italy')
   }
 })
 
-test('high-miss teams are drawn clearly more often, but every team is drawn', () => {
-  let stats = {}
-  stats = play(stats, 'a', 'mmmmm') // always missed
-  for (const slug of ['b', 'c', 'd', 'e', 'f', 'g']) stats = play(stats, slug, 'ggggg') // always got
+test('a just-missed team is drawn clearly more often, but every team is drawn', () => {
+  const now = T0 + 2 * HOUR
+  const events = [
+    ...answers('a', 'mm', now - 90 * MIN), // missed twice, last 89 min ago: due and boosted
+    ...['b', 'c', 'd', 'e', 'f', 'g'].flatMap((slug) => answers(slug, 'g', now - HOUR)), // got, not due
+  ]
+  const stats = deriveStats(events)
   const counts = Object.fromEntries(TEAMS.map((team) => [team.slug, 0]))
   const random = seeded(2024)
-  const draws = 11000
-  for (let i = 0; i < draws; i += 1) counts[drawTeam(TEAMS, stats, { random }).slug] += 1
-  // Expected: a = 5/11 of draws, each other team 1/11.
-  assert.ok(counts.a > 4 * counts.b, `a=${counts.a} b=${counts.b}`)
-  assert.ok(counts.a > draws * 0.4 && counts.a < draws * 0.5, `a=${counts.a}`)
+  const draws = 10000
+  for (let i = 0; i < draws; i += 1) counts[drawTeam(TEAMS, stats, { random, now }).slug] += 1
+  assert.ok(counts.a > draws * 0.6, `a=${counts.a}`)
   for (const slug of ['b', 'c', 'd', 'e', 'f', 'g']) {
-    assert.ok(counts[slug] > draws * 0.07, `${slug} drawn only ${counts[slug]} times`)
+    assert.ok(counts[slug] > draws * 0.02, `${slug} drawn only ${counts[slug]} times`)
   }
 })
 
@@ -149,19 +182,12 @@ test('different seeds give different first cards (fresh draw per page load)', ()
   assert.ok(firsts.size > 3)
 })
 
-test('stats round-trip through storage', () => {
-  const storage = memoryStorage()
-  const stats = play(play({}, 'a', 'mg'), 'd', 'm')
-  assert.equal(saveStats(storage, stats), true)
-  assert.ok(storage.data.has(STATS_KEY))
-  assert.deepEqual(loadStats(storage), stats)
-})
-
-test('corrupt or malformed stored stats fall back safely', () => {
-  assert.deepEqual(loadStats(memoryStorage({ [STATS_KEY]: '{not json' })), {})
-  assert.deepEqual(loadStats(memoryStorage({ [STATS_KEY]: '[1,2]' })), {})
-  assert.deepEqual(loadStats(memoryStorage({ [STATS_KEY]: 'null' })), {})
-  assert.deepEqual(loadStats(memoryStorage()), {})
+test('legacy v1 stats: corrupt or malformed values fall back safely', () => {
+  assert.deepEqual(loadLegacyStats(memoryStorage({ [STATS_KEY]: '{not json' })), {})
+  assert.deepEqual(loadLegacyStats(memoryStorage({ [STATS_KEY]: '[1,2]' })), {})
+  assert.deepEqual(loadLegacyStats(memoryStorage({ [STATS_KEY]: 'null' })), {})
+  assert.deepEqual(loadLegacyStats(memoryStorage()), {})
+  assert.deepEqual(loadLegacyStats(null), {})
   const mixed = JSON.stringify({
     good: { attempts: 2, misses: 1, gots: 1, lastSeen: 5, recent: ['m', 'g', 'x'] },
     negative: { attempts: -1, misses: 0, gots: -1, recent: [] },
@@ -169,25 +195,20 @@ test('corrupt or malformed stored stats fall back safely', () => {
     text: 'hello',
     noRecent: { attempts: 1, misses: 1, gots: 0 },
   })
-  const loaded = loadStats(memoryStorage({ [STATS_KEY]: mixed }))
+  const loaded = loadLegacyStats(memoryStorage({ [STATS_KEY]: mixed }))
   assert.deepEqual(Object.keys(loaded).sort(), ['good', 'noRecent'])
   assert.deepEqual(loaded.good.recent, ['m', 'g'])
   assert.deepEqual(loaded.noRecent, { attempts: 1, misses: 1, gots: 0, lastSeen: null, recent: [] })
-  // A team with counts but no recent window still gets weighted by its totals.
-  assert.ok(teamWeight(loaded.noRecent) > 1)
   assert.deepEqual(sanitizeStats(undefined), {})
 })
 
-test('blocked or missing storage falls back to in-memory', () => {
+test('blocked or missing storage is detected', () => {
   const blocked = {
     getItem() { throw new Error('SecurityError') },
     setItem() { throw new Error('QuotaExceededError') },
     removeItem() { throw new Error('SecurityError') },
   }
-  assert.deepEqual(loadStats(blocked), {})
-  assert.equal(saveStats(blocked, { a: { attempts: 1 } }), false)
-  assert.deepEqual(loadStats(null), {})
-  assert.equal(saveStats(null, {}), false)
+  assert.deepEqual(loadLegacyStats(blocked), {})
 
   const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
   try {
@@ -203,8 +224,7 @@ test('blocked or missing storage falls back to in-memory', () => {
     if (original) Object.defineProperty(globalThis, 'localStorage', original)
     else delete globalThis.localStorage
   }
-  // Drawing still works with no stats at all.
-  assert.ok(drawTeam(TEAMS, loadStats(null), { random: seeded(3) }))
+  assert.ok(drawTeam(TEAMS, {}, { random: seeded(3) }))
 })
 
 test('formatPopulation rounds sensibly', () => {

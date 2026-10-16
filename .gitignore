@@ -9,3 +9,8 @@ apps/*/data/*.local.json
 
 # Uploaded soccer videos + their metadata live only on the server
 apps/soccer/data/videos/
+
+# soccer-teams quiz stats are written by the server (POST /soccer-teams/api/stats/events);
+# never commit them, so git pull / deploy can't overwrite or conflict with them.
+apps/soccer-teams/data/*.json
+apps/soccer-teams/data/*.tmp

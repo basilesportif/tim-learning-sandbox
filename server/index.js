@@ -6,6 +6,8 @@ import crypto from 'crypto';
 import multer from 'multer';
 import { SOURCE_SYNC_DEFAULTS, syncGdlCandidates } from './ukraine_sources.js';
 import { setupVocabApiRoutes } from './vocab.js';
+import { writeJsonAtomic } from './json_file.js';
+import { SOCCER_TEAMS_APP_NAME, setupSoccerTeamsStatsRoutes } from './soccer_teams_stats.js';
 
 process.loadEnvFile?.();
 
@@ -2949,6 +2951,12 @@ fs.readdirSync(appsDir).forEach((appName) => {
     // Soccer has its own video API and no generic /api/data routes.
     setupSoccerApiRoutes(appName, soccerStore);
   } else {
+    if (appName === SOCCER_TEAMS_APP_NAME) {
+      // Server-side merge of quiz answers into data/stats.json; the file is
+      // read back through the generic GET below.
+      setupSoccerTeamsStatsRoutes(app, appName, dataPath);
+    }
+
     // Generic API routes for simple app data persistence
     app.get(`/${appName}/api/data/:file`, (req, res) => {
       const filePath = resolveAppDataFile(dataPath, req.params.file);
@@ -2971,7 +2979,7 @@ fs.readdirSync(appsDir).forEach((appName) => {
         return;
       }
 
-      fs.writeFileSync(filePath, JSON.stringify(req.body, null, 2));
+      writeJsonAtomic(filePath, req.body);
       res.json({ success: true });
     });
   }

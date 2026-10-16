@@ -167,25 +167,97 @@ the question side.
   sits right on the lagoon shore. The outline test allows that one club up to 0.75 units
   (about 1.3 km) from the outline. Every other club is strictly inside.
 
-## Card order and stats (`src/lib/deck.js`)
+## Card order and stats (`src/lib/deck.js`, `history.js`, `sync.js`)
 
 Not data, but it lives next to it. There are no rounds: every card is a weighted
 random draw from the teams in the current country filter, so reloading the page
 starts somewhere new. The same team never comes up twice in a row (unless the
 filter has only one team).
 
-Per-team results are stored in the browser under localStorage key
-`soccer-teams:stats:v1` as `{ slug: { attempts, misses, gots, lastSeen, recent } }`,
-where `recent` is the last 5 answers (`"g"` / `"m"`). If localStorage is missing,
-blocked or holds garbage, the app falls back to in-memory stats for that visit.
+### Where the stats live
 
-Weight per team (`teamWeight`):
+- **Server (source of truth):** `apps/soccer-teams/data/stats.json` (on the prod
+  box: `/root/pkg/tim-learning-sandbox/apps/soccer-teams/data/stats.json`). One shared
+  file; the app is single-user. It is gitignored and untracked, and `scripts/deploy.sh`
+  only cleans `apps/*/dist`, so `git pull --ff-only` and deploys leave it alone
+  (`server/soccer_teams_stats.test.js` checks this).
+- **Browser:** localStorage keeps a full copy of the history
+  (`soccer-teams:events:v2`), a queue of answers not yet confirmed by the server
+  (`soccer-teams:pending:v2`) and a random device id (`soccer-teams:device`).
 
-- never seen: 2
-- seen: `1 + 3 * missRate * min(1, attempts / 3) + (last answer missed ? 1 : 0)`,
-  with `missRate` taken over the last 5 answers
+File format:
 
-So an always-missed team is 5x as likely as an always-got one (5 vs 1), and a run
-of "Got it" decays a team back to weight 1. There is no reset button; clear the
-site data to start over.
+```jsonc
+{
+  "version": 2,
+  "updatedAt": "2026-10-16T20:00:00.000Z",
+  "teams": {                     // derived from events, for reading; rebuilt on every write
+    "roma": { "slug": "roma", "attempts": 3, "misses": 2, "gots": 1,
+              "lastSeenAt": "...", "lastWrongAt": "...", "lastGotAt": "...",
+              "recent": ["m", "m", "g"],   // last 10 answers
+              "streak": 1 }                   // "Got it" in a row since the last miss
+  },
+  "events": [                    // the truth: every answer, append-only
+    { "id": "dk3j2...-mg1x2a-4", "slug": "roma", "at": "...", "got": false },
+    // one-time import of the old per-browser v1 stats:
+    { "id": "baseline-<device>-roma", "kind": "baseline", "slug": "roma", "at": "...",
+      "attempts": 3, "misses": 2, "gots": 1, "recent": ["m", "m", "g"] }
+  ]
+}
+```
 
+### Sync and merging
+
+Each answer is an event with a unique id (device id + time + counter). Merging is
+a **union of events by id**, then the per-team stats are re-derived (events sorted
+by time, then id). That is idempotent and order-independent, so two devices can
+answer offline at the same time and nothing is lost.
+
+- Answers go into the local cache and the pending queue at once, so the quiz
+  never waits for the network.
+- About 2 s after the last answer, pending events are POSTed (up to 500 per request)
+  to `/soccer-teams/api/stats/events`. The server reads the file, unions the events,
+  and writes it atomically (temp file + rename). The handler is synchronous, so two
+  requests can't interleave. The response is the merged file, which is how answers
+  from other devices arrive. On load the app also GETs `/soccer-teams/api/data/stats`.
+- Failures (offline, 4xx/5xx) keep the queue and retry after 5 s, 15 s, then every
+  60 s, plus on the browser `online` event. The queue survives reloads.
+- On `pagehide` / tab hidden, pending events are sent again with `fetch(keepalive)`.
+  Duplicates are harmless.
+- Migration: on the first load with this version (no `events:v2` key yet), the old
+  `soccer-teams:stats:v1` entries become one `baseline` event per team and upload
+  like answers. Their ids are fixed per device and slug, so they can't be counted twice.
+  v1 kept only counts and the last 5 answers, so baselines carry no exact miss times:
+  `lastWrongAt` is the v1 `lastSeen` if the last answer was a miss.
+
+### Weights (`teamWeight`)
+
+```
+never seen:  2
+seen:        max(0.25, base * schedule + recentMiss)
+
+base       = 1 + 3 * missRate * min(1, attempts / 3)      missRate over the last 5 answers
+schedule   = 0.5                              if not yet due
+           = 1.5 + 0.5 * min(overdue, 4)      if due (1.5 when just due, up to 3.5)
+overdue    = (now - dueAt) / interval
+dueAt      = lastSeenAt + interval[streak]
+interval   = 10 min, 1 day, 3 days, 7 days, 21 days for streak 0, 1, 2, 3, 4+
+             (streak = "Got it" in a row since the last miss; a miss resets it to 0)
+recentMiss = 4 * 0.5 ^ (hours since lastWrongAt / 12)     4 just after, 2 at 12 h, 1 at 1 day
+```
+
+Teams that were never missed follow the same schedule (got once: due in 1 day, and so on).
+Examples with 40 teams:
+
+| Team | Weight |
+| --- | --- |
+| never seen | 2 |
+| got right, not yet due | 0.5 |
+| got right, just due / 1 interval overdue / far overdue | 1.5 / 2 / 3.5 |
+| missed once, 1 minute ago (not shown next: no repeats) | 2 * 0.5 + 4 = 5 |
+| missed once, 1 hour ago (due after 10 min) | 2 * 3.5 + 3.8 = 10.8 |
+| missed every time, 1 day ago | 4 * 3.5 + 1 = 15 |
+
+The clock (`now`) and random source are injectable, so the tests pin both. There is
+no reset button. To start over, delete `data/stats.json` on the server and clear the
+site data in each browser. Otherwise a browser's cached history is uploaded again.
