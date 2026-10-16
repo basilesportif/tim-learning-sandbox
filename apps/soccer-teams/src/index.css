@@ -1,0 +1,48 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  font-family: 'Segoe UI', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.5;
+  color: #ffffff;
+  background-color: #1a1a2e;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* The app owns exactly one screenful, so the document does too. */
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  min-width: 320px;
+  overscroll-behavior-y: contain;
+}
+
+button {
+  font: inherit;
+  /* No double-tap zoom on iOS when grading quickly. */
+  touch-action: manipulation;
+}
+
+button,
+a,
+summary,
+[role='button'] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Nothing on a flashcard is meant to be selected by a tapping kid. */
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}

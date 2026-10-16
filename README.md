@@ -9,6 +9,7 @@ Simple educational websites for kids - each app teaches something new.
 - **quickmath** - Rapid-fire addition and subtraction with timed multiple-choice practice
 - **shape-rotation** - Turn a triangle in 30 degree steps to learn clockwise vs counterclockwise
 - **soccer-spacing** - Practice soccer field spacing and positioning
+- **soccer-teams** - "What city is this team in?" flashcards for the 2026-27 La Liga and Serie A clubs - crest on the front, city, population and a map dot on the reveal
 - **team** - Soccer teammate name flashcards for Manhattan SC Independiente U9 - photo on the front, first and last name on the reveal
 - **vocab** - Clerk-authenticated vocabulary prep with book-backed decks, pasted word decks, child practice, and light spaced repetition
 

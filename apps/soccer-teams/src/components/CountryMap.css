@@ -1,0 +1,34 @@
+.country-map {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.country-map-land {
+  fill: #dbe4f3;
+  stroke: #94a3b8;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+}
+
+.country-map-inset {
+  fill: rgba(56, 189, 248, 0.08);
+  stroke: #94a3b8;
+  stroke-width: 2;
+  stroke-dasharray: 8 6;
+}
+
+.country-map-halo {
+  fill: rgba(239, 68, 68, 0.28);
+}
+
+.country-map-ring {
+  fill: none;
+  stroke: #ffffff;
+}
+
+.country-map-dot {
+  fill: #ef4444;
+  stroke: #7f1d1d;
+}

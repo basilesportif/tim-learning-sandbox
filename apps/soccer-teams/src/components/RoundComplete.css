@@ -1,0 +1,79 @@
+.round-complete {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-height: 100%;
+  text-align: center;
+  padding: 12px 4px;
+}
+
+.round-complete-emoji {
+  margin: 0;
+  font-size: clamp(3.5rem, 18vw, 6rem);
+  line-height: 1;
+}
+
+.round-complete-title {
+  margin: 0;
+  font-size: clamp(2.2rem, 11vw, 3.2rem);
+  font-weight: 900;
+  line-height: 1.1;
+  color: #ffffff;
+}
+
+.round-complete-note {
+  margin: 0;
+  font-size: clamp(1.15rem, 5vw, 1.45rem);
+  font-weight: 600;
+  color: #c7d2fe;
+}
+
+/* The missed list is the only part that scrolls, so the button stays put. */
+.round-complete-missed {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+  margin-top: 4px;
+}
+
+.round-complete-missed-title {
+  margin: 0 0 6px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fde68a;
+}
+
+.round-complete-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 6px;
+}
+
+.round-complete-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px 6px 6px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.07);
+  text-align: left;
+}
+
+.round-complete-team {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 800;
+}
+
+.round-complete-city {
+  flex: 0 1 auto;
+  font-weight: 600;
+  color: #e0e7ff;
+  text-align: right;
+}
