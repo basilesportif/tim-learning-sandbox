@@ -166,3 +166,26 @@ the question side.
   Venice, is about 0.7 km beyond the 1:10m Venice island polygon. On the map the dot
   sits right on the lagoon shore. The outline test allows that one club up to 0.75 units
   (about 1.3 km) from the outline. Every other club is strictly inside.
+
+## Card order and stats (`src/lib/deck.js`)
+
+Not data, but it lives next to it. There are no rounds: every card is a weighted
+random draw from the teams in the current country filter, so reloading the page
+starts somewhere new. The same team never comes up twice in a row (unless the
+filter has only one team).
+
+Per-team results are stored in the browser under localStorage key
+`soccer-teams:stats:v1` as `{ slug: { attempts, misses, gots, lastSeen, recent } }`,
+where `recent` is the last 5 answers (`"g"` / `"m"`). If localStorage is missing,
+blocked or holds garbage, the app falls back to in-memory stats for that visit.
+
+Weight per team (`teamWeight`):
+
+- never seen: 2
+- seen: `1 + 3 * missRate * min(1, attempts / 3) + (last answer missed ? 1 : 0)`,
+  with `missRate` taken over the last 5 answers
+
+So an always-missed team is 5x as likely as an always-got one (5 vs 1), and a run
+of "Got it" decays a team back to weight 1. There is no reset button; clear the
+site data to start over.
+

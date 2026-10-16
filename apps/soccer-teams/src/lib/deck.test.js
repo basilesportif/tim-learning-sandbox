@@ -1,14 +1,17 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  MISSED_GAP,
-  currentCard,
+  RECENT_WINDOW,
+  STATS_KEY,
+  UNSEEN_WEIGHT,
+  drawTeam,
   filterTeams,
-  isRoundComplete,
-  markGot,
-  markMissed,
-  shuffle,
-  startRound,
+  getStorage,
+  loadStats,
+  recordResult,
+  sanitizeStats,
+  saveStats,
+  teamWeight,
 } from './deck.js'
 import { formatPopulation, initials, sourceLabel } from './format.js'
 
@@ -24,7 +27,7 @@ const TEAMS = [
 
 const slugs = (list) => list.map((team) => team.slug)
 
-// A small seeded generator so shuffles are repeatable in tests.
+// A small seeded generator so draws are repeatable in tests.
 function seeded(seed) {
   let s = seed
   return () => {
@@ -33,97 +36,175 @@ function seeded(seed) {
   }
 }
 
-test('shuffle keeps every item and does not mutate the input', () => {
-  const input = [...TEAMS]
-  const out = shuffle(input, seeded(1))
-  assert.deepEqual(slugs(input), slugs(TEAMS))
-  assert.deepEqual(slugs(out).sort(), slugs(TEAMS).sort())
-})
+// Record a sequence of answers ('g' / 'm') for one team.
+function play(stats, slug, answers) {
+  return [...answers].reduce((acc, answer, i) => recordResult(acc, slug, answer === 'g', 1000 + i), stats)
+}
 
-test('startRound builds a shuffled deck with every team once', () => {
-  const round = startRound(TEAMS, 'All', { random: seeded(7) })
-  assert.equal(round.total, TEAMS.length)
-  assert.equal(round.queue.length, TEAMS.length)
-  assert.deepEqual(slugs(round.queue).sort(), slugs(TEAMS).sort())
-  assert.deepEqual(round.missed, [])
-  assert.equal(isRoundComplete(round), false)
-  // Different seeds give different orders (the deck really is shuffled).
-  const orders = new Set([1, 2, 3, 4, 5].map((seed) => slugs(startRound(TEAMS, 'All', { random: seeded(seed) }).queue).join()))
-  assert.ok(orders.size > 1)
-})
-
-test('startRound avoids repeating the previous last card first', () => {
-  for (let seed = 1; seed < 30; seed += 1) {
-    const round = startRound(TEAMS, 'All', { avoidFirstSlug: 'a', random: seeded(seed) })
-    assert.notEqual(currentCard(round).slug, 'a')
+// In-memory stand-in for window.localStorage.
+function memoryStorage(initial = {}) {
+  const data = new Map(Object.entries(initial))
+  return {
+    getItem: (key) => (data.has(key) ? data.get(key) : null),
+    setItem: (key, value) => { data.set(key, String(value)) },
+    removeItem: (key) => { data.delete(key) },
+    data,
   }
-})
+}
 
 test('filter by country', () => {
   assert.deepEqual(slugs(filterTeams(TEAMS, 'Spain')), ['a', 'b', 'c'])
   assert.deepEqual(slugs(filterTeams(TEAMS, 'Italy')), ['d', 'e', 'f', 'g'])
   assert.equal(filterTeams(TEAMS, 'All').length, TEAMS.length)
-  const round = startRound(TEAMS, 'Italy', { random: seeded(3) })
-  assert.equal(round.total, 4)
-  assert.ok(round.queue.every((team) => team.country === 'Italy'))
 })
 
-test('got it removes the current card', () => {
-  const round = startRound(TEAMS, 'All', { random: seeded(2) })
-  const first = currentCard(round)
-  const next = markGot(round)
-  assert.equal(next.queue.length, TEAMS.length - 1)
-  assert.ok(!next.queue.includes(first))
-  assert.equal(currentCard(next), round.queue[1])
-  assert.equal(round.queue.length, TEAMS.length, 'input round is not mutated')
+test('unseen teams get a nonzero default weight', () => {
+  assert.equal(teamWeight(undefined), UNSEEN_WEIGHT)
+  assert.equal(teamWeight({ attempts: 0, misses: 0, gots: 0, recent: [] }), UNSEEN_WEIGHT)
+  assert.ok(UNSEEN_WEIGHT > 0)
 })
 
-test('missed it re-queues the card a few places later', () => {
-  const round = startRound(TEAMS, 'All', { random: seeded(4) })
-  const first = currentCard(round)
-  const next = markMissed(round)
-  assert.equal(next.queue.length, TEAMS.length)
-  assert.equal(next.queue.indexOf(first), MISSED_GAP)
-  assert.deepEqual(slugs(next.queue.slice(0, MISSED_GAP)), slugs(round.queue.slice(1, MISSED_GAP + 1)))
-})
-
-test('missed card near the end goes to the back; a lone card comes straight back', () => {
-  let round = startRound(TEAMS.slice(0, 2), 'All', { random: seeded(5) })
-  const first = currentCard(round)
-  round = markMissed(round)
-  assert.equal(round.queue.at(-1), first)
-  round = markGot(round)
-  assert.equal(currentCard(round), first)
-  round = markMissed(round)
-  assert.equal(currentCard(round), first)
-  assert.equal(isRoundComplete(round), false)
-})
-
-test('round completes only after every card is got once', () => {
-  let round = startRound(TEAMS, 'Spain', { random: seeded(6) })
-  round = markMissed(round)
-  round = markMissed(round)
-  let steps = 0
-  while (!isRoundComplete(round)) {
-    round = markGot(round)
-    steps += 1
+test('weight grows with miss rate and never drops below 1', () => {
+  const rates = ['ggggg', 'mgggg', 'gmgmg', 'mmmgg', 'mmmmg', 'mmmmm']
+  const weights = rates.map((answers) => teamWeight(play({}, 'x', answers).x))
+  for (let i = 1; i < weights.length; i += 1) {
+    assert.ok(weights[i] >= weights[i - 1], `weights not monotonic: ${weights}`)
   }
-  assert.equal(steps, 3)
-  assert.equal(currentCard(round), null)
-  assert.equal(markGot(round), round)
-  assert.equal(markMissed(round), round)
+  assert.equal(weights[0], 1)
+  assert.ok(weights.every((w) => w >= 1))
+  // Always missed is about 5x as likely as always got.
+  assert.equal(weights.at(-1) / weights[0], 5)
 })
 
-test('missed list accumulates once per team, in order', () => {
-  let round = startRound(TEAMS, 'All', { random: seeded(8) })
-  const a = currentCard(round)
-  round = markMissed(round)
-  const b = currentCard(round)
-  round = markMissed(round)
-  // Walk to the first missed card again and miss it a second time.
-  while (currentCard(round) !== a) round = markGot(round)
-  round = markMissed(round)
-  assert.deepEqual(slugs(round.missed), [a.slug, b.slug])
+test('a run of Got it decays an old miss back to the base weight', () => {
+  let stats = play({}, 'x', 'mmm')
+  const high = teamWeight(stats.x)
+  stats = play(stats, 'x', 'gg')
+  const lower = teamWeight(stats.x)
+  stats = play(stats, 'x', 'ggg')
+  assert.ok(high > lower && lower > 1)
+  assert.equal(teamWeight(stats.x), 1)
+  assert.equal(stats.x.attempts, 8)
+  assert.equal(stats.x.recent.length, RECENT_WINDOW)
+})
+
+test('recordResult counts answers without mutating its input', () => {
+  const before = {}
+  const after = recordResult(before, 'a', false, 42)
+  assert.deepEqual(before, {})
+  assert.deepEqual(after.a, { attempts: 1, misses: 1, gots: 0, lastSeen: 42, recent: ['m'] })
+  const again = recordResult(after, 'a', true, 43)
+  assert.deepEqual(again.a, { attempts: 2, misses: 1, gots: 1, lastSeen: 43, recent: ['m', 'g'] })
+})
+
+test('drawTeam never repeats the card just shown', () => {
+  const random = seeded(11)
+  let previous = null
+  for (let i = 0; i < 500; i += 1) {
+    const team = drawTeam(TEAMS, {}, { excludeSlug: previous, random })
+    assert.notEqual(team.slug, previous)
+    previous = team.slug
+  }
+  // Even when the previous card is heavily weighted.
+  const stats = play({}, 'a', 'mmmmm')
+  for (let seed = 1; seed < 200; seed += 1) {
+    assert.notEqual(drawTeam(TEAMS, stats, { excludeSlug: 'a', random: seeded(seed) }).slug, 'a')
+  }
+})
+
+test('a one-team filter keeps showing that team', () => {
+  const only = [TEAMS[0]]
+  assert.equal(drawTeam(only, {}, { excludeSlug: 'a', random: seeded(1) }).slug, 'a')
+  assert.equal(drawTeam([], {}), null)
+})
+
+test('drawTeam respects the country filter', () => {
+  const random = seeded(5)
+  const italy = filterTeams(TEAMS, 'Italy')
+  const stats = play({}, 'a', 'mmmmm') // a Spanish team with a huge weight
+  for (let i = 0; i < 300; i += 1) {
+    assert.equal(drawTeam(italy, stats, { random }).country, 'Italy')
+  }
+})
+
+test('high-miss teams are drawn clearly more often, but every team is drawn', () => {
+  let stats = {}
+  stats = play(stats, 'a', 'mmmmm') // always missed
+  for (const slug of ['b', 'c', 'd', 'e', 'f', 'g']) stats = play(stats, slug, 'ggggg') // always got
+  const counts = Object.fromEntries(TEAMS.map((team) => [team.slug, 0]))
+  const random = seeded(2024)
+  const draws = 11000
+  for (let i = 0; i < draws; i += 1) counts[drawTeam(TEAMS, stats, { random }).slug] += 1
+  // Expected: a = 5/11 of draws, each other team 1/11.
+  assert.ok(counts.a > 4 * counts.b, `a=${counts.a} b=${counts.b}`)
+  assert.ok(counts.a > draws * 0.4 && counts.a < draws * 0.5, `a=${counts.a}`)
+  for (const slug of ['b', 'c', 'd', 'e', 'f', 'g']) {
+    assert.ok(counts[slug] > draws * 0.07, `${slug} drawn only ${counts[slug]} times`)
+  }
+})
+
+test('different seeds give different first cards (fresh draw per page load)', () => {
+  const firsts = new Set()
+  for (let seed = 1; seed <= 20; seed += 1) firsts.add(drawTeam(TEAMS, {}, { random: seeded(seed) }).slug)
+  assert.ok(firsts.size > 3)
+})
+
+test('stats round-trip through storage', () => {
+  const storage = memoryStorage()
+  const stats = play(play({}, 'a', 'mg'), 'd', 'm')
+  assert.equal(saveStats(storage, stats), true)
+  assert.ok(storage.data.has(STATS_KEY))
+  assert.deepEqual(loadStats(storage), stats)
+})
+
+test('corrupt or malformed stored stats fall back safely', () => {
+  assert.deepEqual(loadStats(memoryStorage({ [STATS_KEY]: '{not json' })), {})
+  assert.deepEqual(loadStats(memoryStorage({ [STATS_KEY]: '[1,2]' })), {})
+  assert.deepEqual(loadStats(memoryStorage({ [STATS_KEY]: 'null' })), {})
+  assert.deepEqual(loadStats(memoryStorage()), {})
+  const mixed = JSON.stringify({
+    good: { attempts: 2, misses: 1, gots: 1, lastSeen: 5, recent: ['m', 'g', 'x'] },
+    negative: { attempts: -1, misses: 0, gots: -1, recent: [] },
+    mismatched: { attempts: 3, misses: 1, gots: 1, recent: [] },
+    text: 'hello',
+    noRecent: { attempts: 1, misses: 1, gots: 0 },
+  })
+  const loaded = loadStats(memoryStorage({ [STATS_KEY]: mixed }))
+  assert.deepEqual(Object.keys(loaded).sort(), ['good', 'noRecent'])
+  assert.deepEqual(loaded.good.recent, ['m', 'g'])
+  assert.deepEqual(loaded.noRecent, { attempts: 1, misses: 1, gots: 0, lastSeen: null, recent: [] })
+  // A team with counts but no recent window still gets weighted by its totals.
+  assert.ok(teamWeight(loaded.noRecent) > 1)
+  assert.deepEqual(sanitizeStats(undefined), {})
+})
+
+test('blocked or missing storage falls back to in-memory', () => {
+  const blocked = {
+    getItem() { throw new Error('SecurityError') },
+    setItem() { throw new Error('QuotaExceededError') },
+    removeItem() { throw new Error('SecurityError') },
+  }
+  assert.deepEqual(loadStats(blocked), {})
+  assert.equal(saveStats(blocked, { a: { attempts: 1 } }), false)
+  assert.deepEqual(loadStats(null), {})
+  assert.equal(saveStats(null, {}), false)
+
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  try {
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new Error('blocked') } })
+    assert.equal(getStorage(), null)
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: blocked })
+    assert.equal(getStorage(), null)
+    const ok = memoryStorage()
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: ok })
+    assert.equal(getStorage(), ok)
+    assert.equal(ok.data.size, 0, 'probe key is cleaned up')
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'localStorage', original)
+    else delete globalThis.localStorage
+  }
+  // Drawing still works with no stats at all.
+  assert.ok(drawTeam(TEAMS, loadStats(null), { random: seeded(3) }))
 })
 
 test('formatPopulation rounds sensibly', () => {

@@ -7,8 +7,8 @@ const LABELS = {
   Italy: 'Italy',
 };
 
-// Segmented control: All / Spain / Italy. Picking a different one starts a new
-// shuffled round (handled by the parent).
+// Segmented control: All / Spain / Italy. Picking a different one draws a new
+// card from that country (handled by the parent).
 function CountryFilter({ value, onChange }) {
   return (
     <div className="country-filter" role="radiogroup" aria-label="Which country">
