@@ -1,9 +1,18 @@
 // Card picking for the "What city is this team in?" flashcards.
 //
-// There are no rounds: every card is a fresh weighted random draw from the
-// teams in the current country filter, so a page refresh is a new random
-// start. Teams Tim has missed (especially recently) and teams due for review
-// come up more often. Per-team stats come from the answer history in
+// There are no rounds: every card is drawn from the teams in the current
+// country filter. Each team has a due time computed from its stats (see
+// reviewState() and DATA.md):
+//
+//   - never answered:                     due now
+//   - never missed, got it right N times: due 30 / 60 / 90 days after the last answer
+//   - missed at least once:               ladder by "Got it" streak since the last
+//                                         miss: 10 min, 1, 3, 7, 21, 30, 60, 90 days
+//
+// If any team is due, the card is a weighted random draw from the due teams
+// only (missed and overdue teams weigh more). If nothing is due, the team
+// that is due soonest comes up. The card just shown is never repeated while
+// another team is available. Per-team stats come from the answer history in
 // lib/history.js, synced to the server by lib/sync.js.
 //
 // Everything here is pure except getStorage / loadLegacyStats; the random
@@ -16,27 +25,28 @@ export const COUNTRY_FILTERS = ['All', 'Spain', 'Italy'];
 export const STATS_KEY = 'soccer-teams:stats:v1';
 export const LEGACY_RECENT_WINDOW = 5;
 
-// Weight tuning, see teamWeight() and DATA.md.
-export const UNSEEN_WEIGHT = 2;
-export const BASE_WEIGHT = 1;
-export const MISS_K = 3;
-export const MISS_RATE_WINDOW = 5;
-export const CONFIDENCE_ATTEMPTS = 3;
-export const RECENT_MISS_BOOST = 4;
-export const RECENT_MISS_HALF_LIFE_HOURS = 12;
-export const NOT_DUE_FACTOR = 0.5;
-export const DUE_FACTOR = 1.5;
-export const OVERDUE_SLOPE = 0.5;
-export const OVERDUE_CAP = 4;
-export const MIN_WEIGHT = 0.25;
-
 const MINUTE = 60 * 1000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
 
-// Review interval by streak (consecutive "Got it" since the last miss):
-// 0 (just missed) 10 min, 1 -> 1 day, 2 -> 3 days, 3 -> 7 days, 4+ -> 21 days.
-export const REVIEW_INTERVALS_MS = [10 * MINUTE, 1 * DAY, 3 * DAY, 7 * DAY, 21 * DAY];
+// Never missed: interval by number of correct answers (1 -> 30 days,
+// 2 -> 60 days, 3+ -> 90 days).
+export const NEVER_MISSED_INTERVALS_MS = [30 * DAY, 60 * DAY, 90 * DAY];
+
+// Missed at least once: interval by streak (consecutive "Got it" since the
+// last miss). 0 (just missed) 10 min, then 1, 3, 7, 21 days, then graduated
+// to 30, 60 and 90 days (cap).
+export const MISSED_INTERVALS_MS = [
+  10 * MINUTE, 1 * DAY, 3 * DAY, 7 * DAY, 21 * DAY, 30 * DAY, 60 * DAY, 90 * DAY,
+];
+
+// Weights among due teams, see teamWeight() and DATA.md.
+export const UNSEEN_WEIGHT = 2;
+export const NEVER_MISSED_WEIGHT = 1;
+export const MISSED_WEIGHT = 2;
+export const OVERDUE_CAP = 2; // in intervals
+export const RECENT_MISS_BOOST = 4;
+export const RECENT_MISS_HALF_LIFE_HOURS = 12;
 
 export function filterTeams(teams, country = 'All') {
   if (!country || country === 'All') return [...teams];
@@ -45,76 +55,123 @@ export function filterTeams(teams, country = 'All') {
 }
 
 // ---------------------------------------------------------------------------
-// Weights
+// Schedule
 // ---------------------------------------------------------------------------
 
 const toMs = (iso) => (iso ? Date.parse(iso) : NaN);
+const pickInterval = (list, index) => list[Math.max(0, Math.min(index, list.length - 1))];
 
-// When a seen team is next due for review, and how overdue it is
-// (overdue = (now - dueAt) / interval; negative = not yet due).
-export function reviewState(stat, now = Date.now()) {
-  const streak = Math.max(0, stat?.streak ?? 0);
-  const intervalMs = REVIEW_INTERVALS_MS[Math.min(streak, REVIEW_INTERVALS_MS.length - 1)];
-  const lastSeen = toMs(stat?.lastSeenAt);
-  if (!Number.isFinite(lastSeen)) return { intervalMs, dueAt: null, overdue: 0 };
-  const dueAt = lastSeen + intervalMs;
-  return { intervalMs, dueAt, overdue: (now - dueAt) / intervalMs };
+const trailingGots = (recent) => {
+  let n = 0;
+  for (let i = recent.length - 1; i >= 0 && recent[i] === 'g'; i -= 1) n += 1;
+  return n;
+};
+
+// The "Got it" streak since the last miss. lib/history.js derives it from the
+// events; if it is missing (hand-edited data), fall back to the trailing
+// "Got it"s in `recent`.
+function streakOf(stat) {
+  if (Number.isInteger(stat.streak) && stat.streak >= 0) return stat.streak;
+  return Array.isArray(stat.recent) ? trailingGots(stat.recent) : 0;
 }
 
-// How likely a team is to be drawn, relative to the others in the filter:
+// When a team is next due, from its stats alone (nothing is stored):
+//   { kind: 'unseen' | 'never-missed' | 'missed', intervalMs, dueAt, overdue, due }
+// dueAt is ms (-Infinity for unseen teams or a team without a usable time);
+// overdue = (now - dueAt) / interval, negative = not due yet.
+export function reviewState(stat, now = Date.now()) {
+  if (!stat || !(stat.attempts > 0)) {
+    return { kind: 'unseen', intervalMs: 0, dueAt: -Infinity, overdue: 0, due: true };
+  }
+
+  let kind;
+  let intervalMs;
+  let last;
+  if (!(stat.misses > 0)) {
+    kind = 'never-missed';
+    intervalMs = pickInterval(NEVER_MISSED_INTERVALS_MS, (stat.gots || 1) - 1);
+    last = toMs(stat.lastGotAt);
+    if (!Number.isFinite(last)) last = toMs(stat.lastSeenAt);
+  } else {
+    kind = 'missed';
+    intervalMs = pickInterval(MISSED_INTERVALS_MS, streakOf(stat));
+    last = toMs(stat.lastSeenAt);
+  }
+
+  if (!Number.isFinite(last)) return { kind, intervalMs, dueAt: -Infinity, overdue: 0, due: true };
+  const dueAt = last + intervalMs;
+  return { kind, intervalMs, dueAt, overdue: (now - dueAt) / intervalMs, due: dueAt <= now };
+}
+
+// Relative weight of a team that is due (only due teams are drawn at random):
 //
-//   never seen: UNSEEN_WEIGHT (2)
-//   seen:       max(0.25, base * schedule + recentMiss)
+//   unseen:        2
+//   never missed:  1 + min(overdue, 2)
+//   missed:        2 + min(overdue, 2) + 4 * 0.5 ^ (hours since last miss / 12)
 //
-//   base       = 1 + 3 * missRate * confidence
-//                missRate over the last 5 answers, confidence = min(1, attempts / 3)
-//   schedule   = 0.5 if not yet due, else 1.5 + 0.5 * min(overdue, 4)
-//                (due date = last answer + interval for the current streak)
-//   recentMiss = 4 * 0.5 ^ (hours since last miss / 12)
-//
-// See DATA.md for worked numbers.
+// overdue is in intervals (1 = one whole interval past the due time).
 export function teamWeight(stat, now = Date.now()) {
-  if (!stat || !(stat.attempts > 0)) return UNSEEN_WEIGHT;
+  const state = reviewState(stat, now);
+  if (state.kind === 'unseen') return UNSEEN_WEIGHT;
 
-  const recent = Array.isArray(stat.recent) ? stat.recent.slice(-MISS_RATE_WINDOW) : [];
-  const missRate = recent.length > 0
-    ? recent.filter((result) => result === 'm').length / recent.length
-    : stat.misses / stat.attempts;
-  const confidence = Math.min(1, stat.attempts / CONFIDENCE_ATTEMPTS);
-  const base = BASE_WEIGHT + MISS_K * missRate * confidence;
-
-  const { overdue } = reviewState(stat, now);
-  const schedule = overdue < 0 ? NOT_DUE_FACTOR : DUE_FACTOR + OVERDUE_SLOPE * Math.min(overdue, OVERDUE_CAP);
+  const overdue = Math.min(Math.max(0, state.overdue), OVERDUE_CAP);
+  if (state.kind === 'never-missed') return NEVER_MISSED_WEIGHT + overdue;
 
   const lastWrong = toMs(stat.lastWrongAt);
   const hoursSinceMiss = Number.isFinite(lastWrong) ? Math.max(0, now - lastWrong) / HOUR : Infinity;
   const recentMiss = RECENT_MISS_BOOST * 0.5 ** (hoursSinceMiss / RECENT_MISS_HALF_LIFE_HOURS);
-
-  return Math.max(MIN_WEIGHT, base * schedule + recentMiss);
+  return MISSED_WEIGHT + overdue + recentMiss;
 }
 
-// Pick one team from `teams`, weighted by teamWeight(). `excludeSlug` (the card
-// just shown) is skipped unless it is the only team, so the same crest never
-// shows twice in a row.
+// The teams that may be drawn: all of `teams` except `excludeSlug` (the card
+// just shown), unless that would leave nothing.
+function candidatesOf(teams, excludeSlug) {
+  if (!excludeSlug || teams.length < 2) return teams;
+  const pool = teams.filter((team) => team.slug !== excludeSlug);
+  return pool.length > 0 ? pool : teams;
+}
+
+// Pick the next card from `teams`:
+//   - some candidate due: weighted random draw (teamWeight) among the due ones only
+//   - nothing due: the candidate due soonest (ties: random)
+// `excludeSlug` (the card just shown) is skipped unless it is the only team.
 export function drawTeam(teams, stats = {}, { excludeSlug = null, random = Math.random, now = Date.now() } = {}) {
   if (teams.length === 0) return null;
 
-  const pool = teams.length > 1 && excludeSlug
-    ? teams.filter((team) => team.slug !== excludeSlug)
-    : teams;
-  if (pool.length === 0) return teams[0];
+  const pool = candidatesOf(teams, excludeSlug).map((team) => ({ team, state: reviewState(stats[team.slug], now) }));
+  const due = pool.filter((entry) => entry.state.due);
 
-  const weights = pool.map((team) => teamWeight(stats[team.slug], now));
+  if (due.length === 0) {
+    const soonest = Math.min(...pool.map((entry) => entry.state.dueAt));
+    const tied = pool.filter((entry) => entry.state.dueAt === soonest);
+    return tied[Math.min(tied.length - 1, Math.floor(random() * tied.length))].team;
+  }
+
+  const weights = due.map((entry) => teamWeight(stats[entry.team.slug], now));
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   let target = random() * total;
 
-  for (let i = 0; i < pool.length; i += 1) {
+  for (let i = 0; i < due.length; i += 1) {
     target -= weights[i];
-    if (target < 0) return pool[i];
+    if (target < 0) return due[i].team;
   }
 
-  return pool[pool.length - 1];
+  return due[due.length - 1].team;
 }
+
+// null if some team in `teams` is due now, otherwise the earliest due time
+// (ms). The UI uses it for the "All caught up" note.
+export function nextDueAt(teams, stats = {}, now = Date.now()) {
+  if (teams.length === 0) return null;
+  let soonest = Infinity;
+  for (const team of teams) {
+    const state = reviewState(stats[team.slug], now);
+    if (state.due) return null;
+    soonest = Math.min(soonest, state.dueAt);
+  }
+  return soonest;
+}
+
 
 // ---------------------------------------------------------------------------
 // Legacy (v1) localStorage stats, read once for migration

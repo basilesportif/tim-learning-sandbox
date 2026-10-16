@@ -52,3 +52,13 @@ export function badgePalette(slug) {
 
   return PALETTE[hash % PALETTE.length];
 }
+
+// Rough time until the next review: "5 min", "3 hours", "12 days".
+export function formatWait(ms) {
+  const minutes = Math.max(1, Math.ceil(ms / 60000));
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+  const days = Math.round(hours / 24);
+  return `${days} days`;
+}

@@ -124,3 +124,12 @@
     font-size: 1.2rem;
   }
 }
+
+/* Quiet note when nothing is due: the card shown is the one due soonest. */
+.app-caught-up {
+  flex: 0 0 auto;
+  margin: 0;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  text-align: center;
+}

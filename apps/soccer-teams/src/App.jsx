@@ -3,7 +3,8 @@ import About from './components/About';
 import CountryFilter from './components/CountryFilter';
 import FlashCard from './components/FlashCard';
 import teams from './data/teams.json';
-import { drawTeam, filterTeams, getStorage } from './lib/deck';
+import { drawTeam, filterTeams, getStorage, nextDueAt } from './lib/deck';
+import { formatWait } from './lib/format';
 import { createStatsSync } from './lib/sync';
 import './App.css';
 
@@ -11,10 +12,21 @@ import './App.css';
 // button that replaces them. Ignore those for a moment after a grade.
 const GRADE_GUARD_MS = 400;
 
-// An endless stream of cards: each one is a weighted random draw (see
-// lib/deck.js), so teams that were missed more come up more often. Reloading
-// the page starts with a fresh random card; the answer history is synced to
-// the server (data/stats.json) with localStorage as the offline cache.
+// The next card for a country filter, plus the "All caught up" wait (ms) when
+// nothing in the filter is due (then the card is the one due soonest).
+function nextCard(country, stats, excludeSlug = null) {
+  const now = Date.now();
+  const pool = filterTeams(teams, country);
+  const dueAt = nextDueAt(pool, stats, now);
+  return {
+    team: drawTeam(pool, stats, { excludeSlug, now }),
+    caughtUpFor: dueAt === null ? null : dueAt - now,
+  };
+}
+
+// An endless stream of cards: due teams first (see lib/deck.js), so missed
+// teams come back soon and teams Tim knows wait 30+ days. The answer history
+// is synced to the server (data/stats.json) with localStorage as the offline cache.
 function initialState() {
   // No network or listeners until sync.start() in an effect.
   const sync = createStatsSync({ storage: getStorage(), baseUrl: import.meta.env.BASE_URL });
@@ -24,7 +36,7 @@ function initialState() {
     sync,
     stats,
     country: 'All',
-    team: drawTeam(filterTeams(teams, 'All'), stats),
+    ...nextCard('All', stats),
     seen: 0,
   };
 }
@@ -34,7 +46,7 @@ function App() {
   const [revealed, setRevealed] = useState(false);
   const gradedAt = useRef(-Infinity);
 
-  const { country, team, seen, sync } = state;
+  const { country, team, seen, sync, caughtUpFor } = state;
   const stage = revealed ? 'grade' : 'reveal';
 
   const handleCountry = useCallback((next) => {
@@ -43,7 +55,7 @@ function App() {
       return {
         ...current,
         country: next,
-        team: drawTeam(filterTeams(teams, next), current.stats, { excludeSlug: current.team?.slug }),
+        ...nextCard(next, current.stats, current.team?.slug),
       };
     });
     setRevealed(false);
@@ -58,7 +70,7 @@ function App() {
       return {
         ...current,
         stats,
-        team: drawTeam(filterTeams(teams, current.country), stats, { excludeSlug: current.team.slug }),
+        ...nextCard(current.country, stats, current.team.slug),
         seen: current.seen + 1,
       };
     });
@@ -106,6 +118,10 @@ function App() {
           <span className="app-progress-count">{seen}</span> {seen === 1 ? 'card' : 'cards'}
         </p>
       </header>
+
+      {caughtUpFor !== null ? (
+        <p className="app-caught-up">All caught up — next review in {formatWait(caughtUpFor)}</p>
+      ) : null}
 
       <main className="app-main">
         {team ? <FlashCard team={team} revealed={revealed} onReveal={handleReveal} /> : null}

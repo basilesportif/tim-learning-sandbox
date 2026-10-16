@@ -169,10 +169,10 @@ the question side.
 
 ## Card order and stats (`src/lib/deck.js`, `history.js`, `sync.js`)
 
-Not data, but it lives next to it. There are no rounds: every card is a weighted
-random draw from the teams in the current country filter, so reloading the page
-starts somewhere new. The same team never comes up twice in a row (unless the
-filter has only one team).
+Not data, but it lives next to it. There are no rounds: every card is drawn from
+the teams in the current country filter. Teams that are due for review come
+first; teams Tim has never missed wait 30+ days. The same team never comes up
+twice in a row (unless the filter has only one team). See "Schedule" below.
 
 ### Where the stats live
 
@@ -230,33 +230,73 @@ answer offline at the same time and nothing is lost.
   v1 kept only counts and the last 5 answers, so baselines carry no exact miss times:
   `lastWrongAt` is the v1 `lastSeen` if the last answer was a miss.
 
-### Weights (`teamWeight`)
+### Schedule (`reviewState`)
 
-```
-never seen:  2
-seen:        max(0.25, base * schedule + recentMiss)
+Every team has a due time, computed from its stats each time (nothing extra is
+stored):
 
-base       = 1 + 3 * missRate * min(1, attempts / 3)      missRate over the last 5 answers
-schedule   = 0.5                              if not yet due
-           = 1.5 + 0.5 * min(overdue, 4)      if due (1.5 when just due, up to 3.5)
-overdue    = (now - dueAt) / interval
-dueAt      = lastSeenAt + interval[streak]
-interval   = 10 min, 1 day, 3 days, 7 days, 21 days for streak 0, 1, 2, 3, 4+
-             (streak = "Got it" in a row since the last miss; a miss resets it to 0)
-recentMiss = 4 * 0.5 ^ (hours since lastWrongAt / 12)     4 just after, 2 at 12 h, 1 at 1 day
-```
-
-Teams that were never missed follow the same schedule (got once: due in 1 day, and so on).
-Examples with 40 teams:
-
-| Team | Weight |
+| Team | Due |
 | --- | --- |
-| never seen | 2 |
-| got right, not yet due | 0.5 |
-| got right, just due / 1 interval overdue / far overdue | 1.5 / 2 / 3.5 |
-| missed once, 1 minute ago (not shown next: no repeats) | 2 * 0.5 + 4 = 5 |
-| missed once, 1 hour ago (due after 10 min) | 2 * 3.5 + 3.8 = 10.8 |
-| missed every time, 1 day ago | 4 * 3.5 + 1 = 15 |
+| never answered | now |
+| never missed (`misses == 0`), `gots` = 1 / 2 / 3+ | last correct answer (`lastGotAt`) + 30 / 60 / 90 days |
+| missed at least once, `streak` = 0 / 1 / 2 / 3 / 4 | last answer (`lastSeenAt`) + 10 min / 1 / 3 / 7 / 21 days |
+| missed at least once, `streak` = 5 / 6 / 7+ (graduated) | last answer + 30 / 60 / 90 days |
+
+`streak` is the number of "Got it" in a row since the last miss. A miss sets it
+to 0, so the team is due again 10 minutes later. Once a team has been missed it
+stays on the missed ladder for good (it never goes back to the never-missed table),
+but after five correct answers in a row it graduates to the same 30/60/90-day
+gaps. 90 days is the cap on both tables.
+
+### Picking the next card (`drawTeam`)
+
+1. Candidates: the teams in the country filter, minus the card just shown (unless
+   it is the only team).
+2. If any candidate is due (`due time <= now`), the card is a weighted random draw
+   from the **due candidates only**. A team that is not due is never drawn while
+   another candidate is due.
+3. If no candidate is due, the card is the candidate due soonest (ties broken at
+   random). The app then shows a quiet line above the card, "All caught up — next
+   review in X", where X is the time until the earliest due team in the filter.
+   (The note is only shown when nothing in the filter is due; if only the card just
+   shown is due, the soonest other team comes up without the note.)
+
+Weights for due teams (`teamWeight`):
+
+```
+never answered:  2
+never missed:    1 + min(overdue, 2)
+missed:          2 + min(overdue, 2) + 4 * 0.5 ^ (hours since lastWrongAt / 12)
+
+overdue = (now - due time) / interval      0 when just due, 1 one whole interval late
+```
+
+| Due team | Weight |
+| --- | --- |
+| never answered | 2 |
+| never missed, just due / 30+ days late (1 correct) | 1 / 2 |
+| never missed, 60+ days late (1 correct) | 3 (cap) |
+| missed, 1 hour ago (10-minute interval, so overdue capped at 2) | 2 + 2 + 3.8 = 7.8 |
+| missed, 1 day ago, streak 0 | 2 + 2 + 1 = 5 |
+| missed long ago, now due again on the ladder | about 2 to 4 |
+
+Every team stays reachable: unseen teams are due at once, everything else becomes
+due eventually, and when nothing is due the soonest team comes up anyway.
+
+### Existing answers (before this schedule)
+
+The schedule is derived from the stats `lib/history.js` already builds from the
+events, so it applied to every answer recorded before the change, on the first load:
+
+- Teams answered only correctly are **not** treated as unseen: they are due
+  `lastGotAt + 30 days` (60 or 90 days with 2 or 3+ correct answers). If
+  `lastGotAt` is missing, `lastSeenAt` is used.
+- Missed teams use `streak`, which `deriveStats` recomputes from the events on
+  every load, so it is exact for answer events. For a v1 `baseline` import the
+  streak is the trailing "Got it" count of its last 5 answers (at most 5, which
+  means 30 days). If a stats object has no usable `streak`, the trailing "Got it"
+  count of `recent` is used.
+- A team with answers but no usable time is treated as due now.
 
 The clock (`now`) and random source are injectable, so the tests pin both. There is
 no reset button. To start over, delete `data/stats.json` on the server and clear the
